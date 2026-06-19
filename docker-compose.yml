@@ -1,0 +1,13 @@
+services:
+  app:
+    image: ghcr.io/fulaoaz/imge-worker:latest
+    container_name: imge-worker
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    restart: unless-stopped
+    mem_limit: 768m
+    memswap_limit: 1536m
+    security_opt:
+      - no-new-privileges:true

@@ -1,0 +1,13 @@
+.next/
+out/
+node_modules/
+.env*
+!.env.example
+data/
+dist/
+*.log
+*.tsbuildinfo
+.DS_Store
+.idea
+
+.agents/
