@@ -113,7 +113,7 @@ export async function upscaleDataUrl(dataUrl: string, params: ImageUpscaleParams
 export async function fitImageDataUrlForRequest(dataUrl: string, maxLongEdge = 1536, maxBytes = 8 * 1024 * 1024) {
     const image = await loadImage(dataUrl);
     const originalBytes = dataUrlByteSize(dataUrl);
-    if (Math.max(image.width, image.height) <= maxLongEdge && originalBytes <= maxBytes) return dataUrl;
+    if (originalBytes <= maxBytes) return dataUrl;
 
     let longEdge = Math.min(maxLongEdge, Math.max(image.width, image.height));
     let fallback = dataUrl;

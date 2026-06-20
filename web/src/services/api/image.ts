@@ -215,8 +215,9 @@ function parseImagePayload(payload: ImageApiResponse) {
 
 function readAxiosError(error: unknown, fallback: string) {
     if (axios.isCancel(error)) return "请求已取消";
-    if (axios.isAxiosError<{ error?: { message?: string }; msg?: string; code?: number }>(error)) {
+    if (axios.isAxiosError<{ error?: { message?: string }; msg?: string; code?: number } | string>(error)) {
         const responseData = error.response?.data;
+        if (typeof responseData === "string") return readTextError(responseData, error.response?.status, fallback);
         return responseData?.msg || responseData?.error?.message || readStatusError(error.response?.status, fallback);
     }
     if (error instanceof DOMException && error.name === "AbortError") return "请求已取消";
@@ -225,7 +226,9 @@ function readAxiosError(error: unknown, fallback: string) {
 
 function readStatusError(status: number | undefined, fallback: string) {
     if (status === 401 || status === 403) return "鉴权失败，请检查 API Key、套餐权限或模型权限";
+    if (status === 413) return "请求体过大（413），图片超过网关限制；请重试，系统会仅在超限时压缩兜底";
     if (status === 429) return "请求被限流或额度不足，请稍后重试";
+    if (status === 502 || status === 503 || status === 504) return `上游网关暂不可用（${status}），请稍后重试`;
     return status ? `${fallback}：${status}` : fallback;
 }
 
@@ -354,8 +357,16 @@ async function readFetchError(response: Response, fallback: string) {
     try {
         return responseErrorMessage(JSON.parse(text)) || readStatusError(response.status, fallback);
     } catch {
-        return text.slice(0, 300) || readStatusError(response.status, fallback);
+        return readTextError(text, response.status, fallback);
     }
+}
+
+function readTextError(text: string, status: number | undefined, fallback: string) {
+    const trimmed = text.trim();
+    if (/^(?:<!doctype\s+html|<html[\s>])/i.test(trimmed)) {
+        return `${readStatusError(status, fallback)}；上游代理返回了 HTML 错误页，请检查网关限制、代理或模型服务状态`;
+    }
+    return trimmed.slice(0, 300) || readStatusError(status, fallback);
 }
 
 function consumeResponseStreamBlock(block: string, state: ResponseStreamState, onDelta?: (text: string) => void) {
