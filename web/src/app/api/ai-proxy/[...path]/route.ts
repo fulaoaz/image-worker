@@ -68,7 +68,7 @@ function proxyUrl(channel: ServerModelChannel, endpoint: string, searchParams: U
         if (endpoint === "/gemini/streamGenerateContent") return `${serverGeminiApiUrl(channel, model, "streamGenerateContent")}?alt=${encodeURIComponent(searchParams.get("alt") || "sse")}`;
         return "";
     }
-    if (endpoint === "/models" || endpoint === "/responses" || endpoint === "/images/generations" || endpoint === "/images/edits" || endpoint === "/videos" || endpoint === "/audio/speech" || endpoint === "/contents/generations/tasks") return serverAiApiUrl(channel, endpoint);
+    if (endpoint === "/models" || endpoint === "/responses" || endpoint === "/chat/completions" || endpoint === "/images/generations" || endpoint === "/images/edits" || endpoint === "/videos" || endpoint === "/audio/speech" || endpoint === "/contents/generations/tasks") return serverAiApiUrl(channel, endpoint);
     if (/^\/videos\/[^/]+$/.test(endpoint) || /^\/videos\/[^/]+\/content$/.test(endpoint) || /^\/contents\/generations\/tasks\/[^/]+$/.test(endpoint)) return serverAiApiUrl(channel, endpoint);
     return "";
 }

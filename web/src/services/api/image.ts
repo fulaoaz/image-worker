@@ -64,6 +64,12 @@ type ResponseApiPayload = {
     code?: number;
     msg?: string;
 };
+type ChatCompletionPayload = {
+    choices?: Array<{ message?: { content?: string | Array<{ type?: string; text?: string }> } }>;
+    error?: { message?: string };
+    code?: number;
+    msg?: string;
+};
 type ResponseStreamState = { buffer: string; text: string; payload?: ResponseApiPayload; error?: string };
 
 type ImageApiResponse = {
@@ -425,6 +431,30 @@ async function requestStreamingResponse(config: AiConfig, body: Record<string, u
     return { ...result, content: state.text || result.content };
 }
 
+async function requestChatCompletionResponse(config: AiConfig, messages: AiTextMessage[], maxTokens: number, options?: RequestOptions): Promise<ToolResponseResult> {
+    const response = await fetch(aiApiUrl(config, "/chat/completions"), {
+        method: "POST",
+        headers: aiHeaders(config, "application/json"),
+        body: JSON.stringify({ model: config.model, messages, max_tokens: maxTokens, stream: false }),
+        signal: options?.signal,
+    });
+    if (!response.ok) throw new Error(await readFetchError(response, "请求失败"));
+    const payload = (await response.json()) as ChatCompletionPayload;
+    validateChatCompletionPayload(payload);
+    return { content: (payload.choices || []).map((choice) => chatMessageText(choice.message?.content)).join(""), toolCalls: [] };
+}
+
+function validateChatCompletionPayload(payload: ChatCompletionPayload) {
+    if (typeof payload.code === "number" && payload.code !== 0) throw new Error(payload.msg || "请求失败");
+    if (payload.error?.message) throw new Error(payload.error.message);
+}
+
+function chatMessageText(content: string | Array<{ type?: string; text?: string }> | undefined) {
+    if (!content) return "";
+    if (typeof content === "string") return content;
+    return content.map((item) => item.text || "").join("");
+}
+
 function toGeminiBody(config: AiConfig, messages: ResponseInputMessage[], extra?: Record<string, unknown>) {
     const systemText = [
         config.systemPrompt.trim(),
@@ -727,19 +757,28 @@ export async function requestEditableSvgConversion(config: AiConfig, image: Refe
         const result =
             requestConfig.apiFormat === "gemini"
                 ? await requestGeminiStreamingResponse(requestConfig, toGeminiBody(requestConfig, messages, { generationConfig: { maxOutputTokens: 16000 } }), undefined, options)
-                : await requestStreamingResponse(
-                      requestConfig,
-                      {
-                          model: requestConfig.model,
-                          input: toResponseInput(messages),
-                          max_output_tokens: 16000,
-                      },
-                      undefined,
-                      options,
-                  );
+                : await requestOpenAiEditableSvgConversion(requestConfig, messages, options);
         return extractSvgMarkup(result.content || "");
     } catch (error) {
         throw new Error(readAxiosError(error, "转成可编辑 SVG 失败"));
+    }
+}
+
+async function requestOpenAiEditableSvgConversion(config: AiConfig, messages: ResponseInputMessage[], options?: RequestOptions) {
+    try {
+        return await requestStreamingResponse(
+            config,
+            {
+                model: config.model,
+                input: toResponseInput(messages),
+                max_output_tokens: 16000,
+            },
+            undefined,
+            options,
+        );
+    } catch (error) {
+        if (options?.signal?.aborted) throw error;
+        return requestChatCompletionResponse(config, messages.filter((message): message is AiTextMessage => !("type" in message)), 16000, options);
     }
 }
 

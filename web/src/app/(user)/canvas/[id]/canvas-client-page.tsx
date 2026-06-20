@@ -11,7 +11,7 @@ import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audi
 import { requestVideoGeneration, storeGeneratedVideo } from "@/services/api/video";
 import { DOCS_URL } from "@/constant/env";
 import { defaultConfig, type AiConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
-import { resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
+import { imageToDataUrl, resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
 import { resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
@@ -1627,7 +1627,7 @@ function InfiniteCanvasPage() {
                 message.warning("图片节点为空，无法转成可编辑");
                 return;
             }
-            const generationConfig = { ...buildGenerationConfig(effectiveConfig, node, "text"), count: "1" };
+            const generationConfig = { ...buildEditableConversionConfig(effectiveConfig), count: "1" };
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
                 return;
@@ -1636,7 +1636,9 @@ function InfiniteCanvasPage() {
             message.loading({ key, content: "正在用模型重建可拖拽 SVG 对象...", duration: 0 });
             const controller = startGenerationRequest(node.id, node.id, node.id);
             try {
-                const source = { id: node.id, name: `${node.title || node.id}.png`, type: node.metadata.mimeType || "image/png", dataUrl: node.metadata.content, storageKey: node.metadata.storageKey };
+                const dataUrl = await imageToDataUrl({ url: node.metadata.content, storageKey: node.metadata.storageKey });
+                if (!dataUrl) throw new Error("图片读取失败，无法转成可编辑");
+                const source = { id: node.id, name: `${node.title || node.id}.png`, type: node.metadata.mimeType || dataUrlMimeType(dataUrl) || "image/png", dataUrl, storageKey: node.metadata.storageKey };
                 const rawSvg = await requestEditableSvgConversion(
                     generationConfig,
                     source,
@@ -3139,6 +3141,10 @@ function isSvgImage(node: CanvasNodeData) {
     return Boolean(node.metadata?.mimeType?.includes("svg") || node.metadata?.content?.startsWith("data:image/svg+xml"));
 }
 
+function dataUrlMimeType(dataUrl: string) {
+    return dataUrl.match(/^data:([^;,]+)/i)?.[1] || "";
+}
+
 function decodeSvgDataUrl(dataUrl: string) {
     const payload = dataUrl.split(",", 2)[1] || "";
     return decodeURIComponent(payload);
@@ -3288,6 +3294,14 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
         audioSpeed: node?.metadata?.audioSpeed || config.audioSpeed || defaultConfig.audioSpeed,
         audioInstructions: node?.metadata?.audioInstructions || config.audioInstructions || defaultConfig.audioInstructions,
         count: String(node?.metadata?.count || (mode === "image" ? config.canvasImageCount || config.count : config.count) || defaultConfig.count),
+    };
+}
+
+function buildEditableConversionConfig(config: AiConfig): AiConfig {
+    return {
+        ...config,
+        model: config.textModel || config.model || config.imageModel || defaultConfig.textModel,
+        count: "1",
     };
 }
 
