@@ -6,6 +6,8 @@ services:
       - "3000:3000"
     env_file:
       - .env
+    volumes:
+      - ./data:/app/data
     restart: unless-stopped
     mem_limit: 768m
     memswap_limit: 1536m

@@ -18,7 +18,7 @@ const MAX_ATTACHMENTS = 6;
 const MAX_ATTACHMENT_PAYLOAD_BYTES = 28 * 1024 * 1024;
 const AGENT_CONNECT_STEPS = [
     { title: "1. 本机已安装并登录 Codex", text: "先确认本机终端里的 Codex 可以正常使用。", command: "codex --version" },
-    { title: "2. 安装 Canvas Agent", text: "推荐全局安装，后续可以直接运行 canvas-agent。", command: "npm i -g @fulaoaz/imge-worker-agent" },
+    { title: "2. 安装 Canvas Agent", text: "推荐全局安装，后续可以直接运行 canvas-agent。", command: "npm i -g @fulaoaz/image-worker-agent" },
     { title: "3. 启动本地 Agent", text: "启动后终端会输出 Local URL 和 Connect token。", command: "canvas-agent" },
     { title: "4. 回到网页连接", text: "把终端输出的地址和 token 填到下面，点击连接。" },
 ];
@@ -790,7 +790,7 @@ function parseEventData<T>(event: Event) {
 
 function formatLogText(logs: AgentEventLog[], context: AgentLogContext) {
     const head = [
-        "Imge Worker Agent 诊断日志",
+        "Image Worker Agent 诊断日志",
         `Canvas Agent: ${context.endpoint}`,
         `连接: ${context.connected ? "在线" : context.enabled ? "连接中" : "未启用"}`,
         `状态: ${context.activity}`,

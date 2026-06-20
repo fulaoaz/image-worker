@@ -33,7 +33,7 @@ export function getAntThemeConfig(dark: boolean): ThemeConfig {
 
     return {
         algorithm: dark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
-        cssVar: { key: dark ? "imge-worker-dark" : "imge-worker-light" },
+        cssVar: { key: dark ? "image-worker-dark" : "image-worker-light" },
         token: {
             colorPrimary: color.primary,
             colorInfo: color.primary,

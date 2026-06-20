@@ -1,3 +1,7 @@
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+
 type ApiCallFormat = "openai" | "gemini";
 
 export type ServerModelChannel = {
@@ -12,12 +16,36 @@ export type ServerModelChannel = {
 export type PublicServerModelChannel = Omit<ServerModelChannel, "apiKey"> & { apiKey: "" };
 
 const DEFAULT_SERVER_PROVIDER_ID = "server";
+const SERVER_CONFIG_FILE_NAME = "ai-model-channels.json";
 
 export function getServerModelChannels(): ServerModelChannel[] {
-    const jsonChannels = parseJsonChannels(process.env.AI_MODEL_CHANNELS || process.env.SERVER_AI_MODEL_CHANNELS || "");
-    const envChannels = parseIndexedChannels();
-    const singleChannel = parseSingleChannel();
-    return [...jsonChannels, ...envChannels, ...singleChannel].filter((channel) => channel.baseUrl && channel.apiKey && channel.models.length);
+    const storedChannels = readStoredServerModelChannels();
+    const channels = storedChannels ?? readEnvServerModelChannels();
+    return channels.filter(isCompleteChannel);
+}
+
+export function getAdminServerModelChannels(): ServerModelChannel[] {
+    return readStoredServerModelChannels() ?? readEnvServerModelChannels();
+}
+
+export async function saveAdminServerModelChannels(channels: unknown): Promise<ServerModelChannel[]> {
+    const normalizedChannels = normalizeChannelList(channels);
+    const filePath = serverConfigFilePath();
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(
+        filePath,
+        `${JSON.stringify(
+            {
+                version: 1,
+                updatedAt: new Date().toISOString(),
+                channels: normalizedChannels,
+            },
+            null,
+            2,
+        )}\n`,
+        "utf8",
+    );
+    return normalizedChannels;
 }
 
 export function getPublicServerModelChannels(): PublicServerModelChannel[] {
@@ -28,30 +56,12 @@ export function getServerChannel(id: string) {
     return getServerModelChannels().find((channel) => channel.id === id);
 }
 
-export function serverAiApiUrl(channel: Pick<ServerModelChannel, "baseUrl">, path: string) {
+export function serverAiApiUrl(channel: Pick<ServerModelChannel, "baseUrl">, pathValue: string) {
     let normalizedBaseUrl = channel.baseUrl.trim().replace(/\/+$/, "");
     normalizedBaseUrl = normalizeArkPlanBaseUrl(normalizedBaseUrl);
     const lowerBaseUrl = normalizedBaseUrl.toLowerCase();
     const apiBaseUrl = lowerBaseUrl.endsWith("/v1") || lowerBaseUrl.endsWith("/api/v3") || lowerBaseUrl.endsWith("/api/plan/v3") ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
-    return `${apiBaseUrl}${path}`;
-}
-
-function normalizeArkPlanBaseUrl(baseUrl: string) {
-    try {
-        const url = new URL(baseUrl);
-        const path = url.pathname.replace(/\/+$/, "");
-        const lowerPath = path.toLowerCase();
-        const arkPlanIndex = lowerPath.indexOf("/api/plan/v3");
-        if (arkPlanIndex < 0) return baseUrl;
-        const end = arkPlanIndex + "/api/plan/v3".length;
-        if (lowerPath.length !== end && lowerPath[end] !== "/") return baseUrl;
-        url.pathname = path.slice(0, end);
-        url.search = "";
-        url.hash = "";
-        return url.toString().replace(/\/+$/, "");
-    } catch {
-        return baseUrl;
-    }
+    return `${apiBaseUrl}${pathValue}`;
 }
 
 export function serverGeminiApiUrl(channel: Pick<ServerModelChannel, "baseUrl">, model: string, action?: "generateContent" | "streamGenerateContent") {
@@ -62,12 +72,52 @@ export function serverGeminiApiUrl(channel: Pick<ServerModelChannel, "baseUrl">,
     return `${baseUrl}/models/${encodeURIComponent(model.trim().replace(/^models\//, ""))}:${action}`;
 }
 
+function readStoredServerModelChannels(): ServerModelChannel[] | null {
+    const filePath = serverConfigFilePath();
+    if (!existsSync(filePath)) return null;
+    try {
+        const parsed = JSON.parse(readFileSync(filePath, "utf8")) as { channels?: unknown };
+        return normalizeChannelList(parsed.channels);
+    } catch {
+        return [];
+    }
+}
+
+function readEnvServerModelChannels(): ServerModelChannel[] {
+    const jsonChannels = parseJsonChannels(process.env.AI_MODEL_CHANNELS || process.env.SERVER_AI_MODEL_CHANNELS || "");
+    const envChannels = parseIndexedChannels();
+    const singleChannel = parseSingleChannel();
+    return normalizeChannelList([...jsonChannels, ...envChannels, ...singleChannel]);
+}
+
+function serverConfigFilePath() {
+    const dataDir = process.env.IMAGE_WORKER_DATA_DIR || process.env.DATA_DIR || path.join(process.cwd(), "..", "data");
+    return path.join(dataDir, SERVER_CONFIG_FILE_NAME);
+}
+
+function normalizeArkPlanBaseUrl(baseUrl: string) {
+    try {
+        const url = new URL(baseUrl);
+        const pathName = url.pathname.replace(/\/+$/, "");
+        const lowerPath = pathName.toLowerCase();
+        const arkPlanIndex = lowerPath.indexOf("/api/plan/v3");
+        if (arkPlanIndex < 0) return baseUrl;
+        const end = arkPlanIndex + "/api/plan/v3".length;
+        if (lowerPath.length !== end && lowerPath[end] !== "/") return baseUrl;
+        url.pathname = pathName.slice(0, end);
+        url.search = "";
+        url.hash = "";
+        return url.toString().replace(/\/+$/, "");
+    } catch {
+        return baseUrl;
+    }
+}
+
 function parseJsonChannels(value: string): ServerModelChannel[] {
     if (!value.trim()) return [];
     try {
         const parsed = JSON.parse(value) as unknown;
-        if (!Array.isArray(parsed)) return [];
-        return parsed.map((item, index) => normalizeChannel(item, `server-${index + 1}`)).filter((item): item is ServerModelChannel => Boolean(item));
+        return normalizeChannelList(parsed);
     } catch {
         return [];
     }
@@ -108,12 +158,31 @@ function parseSingleChannel() {
     return channel ? [channel] : [];
 }
 
+function normalizeChannelList(value: unknown): ServerModelChannel[] {
+    const items = Array.isArray(value) ? value : [];
+    const usedIds = new Set<string>();
+    return items
+        .map((item, index) => normalizeChannel(item, `server-${index + 1}`))
+        .filter((item): item is ServerModelChannel => Boolean(item))
+        .map((channel) => {
+            const baseId = normalizeId(channel.id, "server");
+            let id = baseId;
+            let suffix = 2;
+            while (usedIds.has(id)) {
+                id = `${baseId}-${suffix}`;
+                suffix += 1;
+            }
+            usedIds.add(id);
+            return { ...channel, id };
+        });
+}
+
 function normalizeChannel(value: unknown, fallbackId: string): ServerModelChannel | null {
     if (!value || typeof value !== "object") return null;
     const record = value as Record<string, unknown>;
     const apiFormat = record.apiFormat === "gemini" ? "gemini" : "openai";
     return {
-        id: stringValue(record.id) || fallbackId,
+        id: normalizeId(stringValue(record.id), fallbackId),
         name: stringValue(record.name) || "服务器渠道",
         baseUrl: stringValue(record.baseUrl),
         apiKey: stringValue(record.apiKey),
@@ -122,12 +191,23 @@ function normalizeChannel(value: unknown, fallbackId: string): ServerModelChanne
     };
 }
 
+function normalizeId(value: string, fallbackId: string) {
+    const normalized = value
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 64);
+    return normalized || fallbackId;
+}
+
+function isCompleteChannel(channel: ServerModelChannel) {
+    return Boolean(channel.baseUrl && channel.apiKey && channel.models.length);
+}
+
 function parseModels(value: unknown) {
-    if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
-    return stringValue(value)
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
+    const rawModels = Array.isArray(value) ? value : stringValue(value).split(",");
+    return Array.from(new Set(rawModels.map((item) => String(item).trim()).filter(Boolean)));
 }
 
 function stringValue(value: unknown) {

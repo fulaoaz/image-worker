@@ -59,7 +59,7 @@ export type WebdavSyncConfig = {
     lastSyncedAt: string;
 };
 
-export const CONFIG_STORE_KEY = "imge-worker:ai_config_store";
+export const CONFIG_STORE_KEY = "image-worker:ai_config_store";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
@@ -112,7 +112,7 @@ export const defaultWebdavSyncConfig: WebdavSyncConfig = {
     url: "",
     username: "",
     password: "",
-    directory: "imge-worker",
+    directory: "image-worker",
     lastSyncedAt: "",
 };
 
@@ -254,12 +254,20 @@ function normalizeModelList(models: string[], channels: ModelChannel[]) {
 function selectModelList(current: string[], models: string[], capability: ModelCapability, channels: ModelChannel[]) {
     const available = new Set(models);
     const kept = normalizeModelList(current, channels).filter((model) => available.has(model));
-    return kept.length ? kept : filterModelsByCapability(models, capability);
+    if (kept.some((model) => isModelOptionReady(model, channels))) return kept;
+    return filterModelsByCapability(models, capability);
 }
 
 function normalizeDefaultModelValue(current: string, options: string[], channels: ModelChannel[]) {
     const normalized = normalizeModelOptionValue(current, channels);
-    return options.includes(normalized) ? normalized : options[0] || normalized;
+    if (options.includes(normalized) && isModelOptionReady(normalized, channels)) return normalized;
+    return options.find((model) => isModelOptionReady(model, channels)) || (options.includes(normalized) ? normalized : options[0] || normalized);
+}
+
+function isModelOptionReady(value: string, channels: ModelChannel[]) {
+    const decoded = decodeChannelModel(value);
+    const channel = decoded ? channels.find((item) => item.id === decoded.channelId) : channels.find((item) => item.models.includes(value));
+    return Boolean(channel && (channel.serverManaged || channel.apiKey.trim()));
 }
 
 export async function fetchServerModelChannels() {

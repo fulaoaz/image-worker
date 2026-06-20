@@ -63,9 +63,9 @@ type GenerationLogConfig = Pick<AiConfig, "model" | "imageModel" | "quality" | "
 
 type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
 
-const LOG_STORE_KEY = "imge-worker:image_generation_logs";
+const LOG_STORE_KEY = "image-worker:image_generation_logs";
 const RESULT_ACTION_BUTTON_CLASS = "min-w-0 px-1.5 [&_.ant-btn-icon]:shrink-0 [&>span:last-child]:min-w-0 [&>span:last-child]:truncate";
-const logStore = localforage.createInstance({ name: "imge-worker", storeName: "image_generation_logs" });
+const logStore = localforage.createInstance({ name: "image-worker", storeName: "image_generation_logs" });
 
 export default function ImagePage() {
     const { message } = App.useApp();

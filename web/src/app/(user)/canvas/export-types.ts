@@ -1,7 +1,7 @@
 import type { CanvasProject } from "./stores/use-canvas-store";
 
 export type CanvasExportFile = {
-    app: "imge-worker";
+    app: "image-worker";
     version: 3;
     exportedAt: string;
     projects: CanvasProjectExportItem[];

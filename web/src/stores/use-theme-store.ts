@@ -14,6 +14,6 @@ export const useThemeStore = create<ThemeStore>()(
             theme: "dark",
             setTheme: (theme) => set({ theme }),
         }),
-        { name: "imge-worker:theme_store" },
+        { name: "image-worker:theme_store" },
     ),
 );

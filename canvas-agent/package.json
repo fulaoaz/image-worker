@@ -1,5 +1,5 @@
 {
-  "name": "@fulaoaz/imge-worker-agent",
+  "name": "@fulaoaz/image-worker-agent",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",

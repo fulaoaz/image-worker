@@ -113,7 +113,7 @@ export function CanvasNodeSvgEditDialog({ source, initialSvg, open, onClose, onC
         if (!(target instanceof Element)) return;
         const editable = target.closest("[data-edit-id]");
         const id = editable?.getAttribute("data-edit-id");
-        if (!id) {
+        if (!editable || !id) {
             setSelectedId(null);
             return;
         }

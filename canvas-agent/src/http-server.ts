@@ -96,10 +96,10 @@ export function startHttpServer() {
     app.use((error: Error, _req: Request, res: Response, _next: NextFunction) => res.status(500).json({ ok: false, error: error.message }));
 
     app.listen(port, "127.0.0.1", () => {
-        console.log("Imge Worker Agent");
+        console.log("Image Worker Agent");
         console.log(`Local URL: ${config.url}`);
         console.log(`Connect token: ${config.token}`);
-        console.log("Codex MCP: codex mcp add imge-worker -- npx -y @fulaoaz/imge-worker-agent mcp");
+        console.log("Codex MCP: codex mcp add image-worker -- npx -y @fulaoaz/image-worker-agent mcp");
     });
 }
 

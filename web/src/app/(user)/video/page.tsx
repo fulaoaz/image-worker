@@ -66,8 +66,8 @@ type GenerationLogConfig = Pick<AiConfig, "model" | "videoModel" | "size" | "vqu
 
 type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
 
-const LOG_STORE_KEY = "imge-worker:video_generation_logs";
-const logStore = localforage.createInstance({ name: "imge-worker", storeName: "video_generation_logs" });
+const LOG_STORE_KEY = "image-worker:video_generation_logs";
+const logStore = localforage.createInstance({ name: "image-worker", storeName: "video_generation_logs" });
 
 export default function VideoPage() {
     const { message } = App.useApp();

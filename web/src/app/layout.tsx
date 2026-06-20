@@ -28,7 +28,7 @@ export default function RootLayout({
                     id="theme-script"
                     strategy="beforeInteractive"
                     dangerouslySetInnerHTML={{
-                        __html: `try{var s=JSON.parse(localStorage.getItem("imge-worker:theme_store")||"{}");var t=s.state&&s.state.theme==="light"?"light":"dark";document.documentElement.classList.toggle("dark",t==="dark");document.documentElement.style.colorScheme=t}catch(e){}`,
+                        __html: `try{var s=JSON.parse(localStorage.getItem("image-worker:theme_store")||"{}");var t=s.state&&s.state.theme==="light"?"light":"dark";document.documentElement.classList.toggle("dark",t==="dark");document.documentElement.style.colorScheme=t}catch(e){}`,
                     }}
                 />
                 <AntdRegistry>
