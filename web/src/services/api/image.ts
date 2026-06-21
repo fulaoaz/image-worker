@@ -19,10 +19,7 @@ export type ResponseToolCall = {
     thoughtSignature?: string;
 };
 
-export type ResponseInputMessage =
-    | AiTextMessage
-    | { type: "function_call"; call_id: string; name: string; arguments: string; thoughtSignature?: string }
-    | { role: "tool"; tool_call_id: string; content: string };
+export type ResponseInputMessage = AiTextMessage | { type: "function_call"; call_id: string; name: string; arguments: string; thoughtSignature?: string } | { role: "tool"; tool_call_id: string; content: string };
 
 export type ResponseFunctionTool = {
     type: "function";
@@ -42,10 +39,7 @@ export type ToolResponseResult = {
 type ToolChoice = "auto" | "required" | { type: "function"; name: string };
 type ResponseMessageContent = AiTextMessage["content"] | string;
 type ResponseInputContent = { type: "input_text"; text: string } | { type: "input_image"; image_url: string };
-type ResponseInputItem =
-    | { role: "system" | "user" | "assistant"; content: string | ResponseInputContent[] }
-    | { type: "function_call"; call_id: string; name: string; arguments: string }
-    | { type: "function_call_output"; call_id: string; output: string };
+type ResponseInputItem = { role: "system" | "user" | "assistant"; content: string | ResponseInputContent[] } | { type: "function_call"; call_id: string; name: string; arguments: string } | { type: "function_call_output"; call_id: string; output: string };
 type ResponseApiToolDefinition = {
     type: "function";
     name: string;
@@ -53,9 +47,7 @@ type ResponseApiToolDefinition = {
     parameters: Record<string, unknown>;
     strict?: boolean;
 };
-type ResponseApiOutputItem =
-    | { type?: "message"; content?: Array<{ type?: string; text?: string }> }
-    | { type?: "function_call"; id?: string; call_id?: string; name?: string; arguments?: string };
+type ResponseApiOutputItem = { type?: "message"; content?: Array<{ type?: string; text?: string }> } | { type?: "function_call"; id?: string; call_id?: string; name?: string; arguments?: string };
 type ResponseApiPayload = {
     id?: string;
     output?: ResponseApiOutputItem[];
@@ -467,12 +459,7 @@ function chatMessageText(content: string | Array<{ type?: string; text?: string 
 }
 
 function toGeminiBody(config: AiConfig, messages: ResponseInputMessage[], extra?: Record<string, unknown>) {
-    const systemText = [
-        config.systemPrompt.trim(),
-        ...messages.flatMap((message) => (!("type" in message) && message.role === "system" ? [geminiTextContent(message.content)] : [])),
-    ]
-        .filter(Boolean)
-        .join("\n\n");
+    const systemText = [config.systemPrompt.trim(), ...messages.flatMap((message) => (!("type" in message) && message.role === "system" ? [geminiTextContent(message.content)] : []))].filter(Boolean).join("\n\n");
     const contents = toGeminiContents(messages.filter((message) => ("type" in message ? true : message.role !== "system")));
     return {
         contents,
@@ -532,10 +519,7 @@ function toGeminiToolOptions(tools: ResponseFunctionTool[], toolChoice: ToolChoi
         description: tool.function.description,
         parameters: tool.function.parameters,
     }));
-    const functionCallingConfig =
-        typeof toolChoice === "object"
-            ? { mode: "ANY", allowedFunctionNames: [toolChoice.name] }
-            : { mode: toolChoice === "required" ? "ANY" : "AUTO" };
+    const functionCallingConfig = typeof toolChoice === "object" ? { mode: "ANY", allowedFunctionNames: [toolChoice.name] } : { mode: toolChoice === "required" ? "ANY" : "AUTO" };
     return {
         tools: [{ functionDeclarations }],
         toolConfig: { functionCallingConfig },
@@ -740,84 +724,23 @@ export async function requestImageQuestion(config: AiConfig, messages: AiTextMes
             if (answer === "没有返回内容") onDelta(answer);
             return answer;
         }
-        const answer = (await requestStreamingResponse(requestConfig, {
-            model: requestConfig.model,
-            input: toResponseInput(withSystemMessage(requestConfig, messages)),
-        }, onDelta, options)).content || "没有返回内容";
+        const answer =
+            (
+                await requestStreamingResponse(
+                    requestConfig,
+                    {
+                        model: requestConfig.model,
+                        input: toResponseInput(withSystemMessage(requestConfig, messages)),
+                    },
+                    onDelta,
+                    options,
+                )
+            ).content || "没有返回内容";
         if (answer === "没有返回内容") onDelta(answer);
         return answer;
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
     }
-}
-
-export async function requestEditableSvgConversion(config: AiConfig, image: ReferenceImage, meta: { width: number; height: number; title?: string }, options?: RequestOptions) {
-    const requestConfig = { ...resolveModelRequestConfig(config, config.model || config.textModel || config.imageModel), systemPrompt: "" };
-    const prompt = buildEditableSvgPrompt(meta);
-    const messages: ResponseInputMessage[] = [
-        {
-            role: "user",
-            content: [
-                { type: "text", text: prompt },
-                { type: "image_url", image_url: { url: image.dataUrl } },
-            ],
-        },
-    ];
-
-    try {
-        const result =
-            requestConfig.apiFormat === "gemini"
-                ? await requestGeminiStreamingResponse(requestConfig, toGeminiBody(requestConfig, messages, { generationConfig: { maxOutputTokens: 16000 } }), undefined, options)
-                : await requestOpenAiEditableSvgConversion(requestConfig, messages, options);
-        return extractSvgMarkup(result.content || "");
-    } catch (error) {
-        throw new Error(readAxiosError(error, "转成可编辑 SVG 失败"));
-    }
-}
-
-async function requestOpenAiEditableSvgConversion(config: AiConfig, messages: ResponseInputMessage[], options?: RequestOptions) {
-    try {
-        return await requestStreamingResponse(
-            config,
-            {
-                model: config.model,
-                input: toResponseInput(messages),
-                max_output_tokens: 16000,
-            },
-            undefined,
-            options,
-        );
-    } catch (error) {
-        if (options?.signal?.aborted) throw error;
-        return requestChatCompletionResponse(config, messages.filter((message): message is AiTextMessage => !("type" in message)), 16000, options);
-    }
-}
-
-function buildEditableSvgPrompt(meta: { width: number; height: number; title?: string }) {
-    const width = Math.max(1, Math.round(meta.width || 1024));
-    const height = Math.max(1, Math.round(meta.height || 1024));
-    const title = meta.title?.trim() || "Editable image";
-    return `请把这张图片重建为可编辑的语义 SVG，而不是把像素点铺成马赛克矩形。目标是让用户后续可以在网页里点选、拖动和修改每一个图形/文字对象。
-
-要求：
-1. 只返回一个完整的 <svg>...</svg>，不要 Markdown 代码块、解释或额外文字。
-2. SVG 必须设置 xmlns、width="${width}"、height="${height}"、viewBox="0 0 ${width} ${height}"。
-3. 尽量把画面拆成语义元素：<text> 用于所有可见文字，<path>/<rect>/<circle>/<ellipse>/<line>/<polyline>/<polygon> 用于图形、箭头、连线、图标和区域。
-4. 不要使用 <image>、base64 位图、foreignObject、script 或外部资源。不能把原图嵌进去。
-5. 对流程图、机制图、信息图，保留标题、标签、箭头方向、连线关系和主要颜色；文字不确定时也要尽量按图片内容 OCR/近似转写。
-6. 相近图形可用 <g> 分组，但每个重要图形和每段文字都要保持为单独可选元素。
-7. 使用简洁样式，允许近似，不追求像素级完全一致；优先保证对象可编辑、可拖动、文字可修改。
-
-标题：${title}`;
-}
-
-function extractSvgMarkup(text: string) {
-    const fenced = text.match(/```(?:svg|xml)?\s*([\s\S]*?<svg[\s\S]*?<\/svg>)\s*```/i)?.[1];
-    const source = fenced || text;
-    const start = source.search(/<svg[\s>]/i);
-    const end = source.toLowerCase().lastIndexOf("</svg>");
-    if (start < 0 || end < start) throw new Error("模型没有返回可编辑 SVG，请换用支持视觉理解的模型后重试");
-    return source.slice(start, end + "</svg>".length).trim();
 }
 
 export async function requestToolResponse(config: AiConfig, messages: ResponseInputMessage[], tools: ResponseFunctionTool[], toolChoice: ToolChoice = "auto", onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
@@ -826,13 +749,18 @@ export async function requestToolResponse(config: AiConfig, messages: ResponseIn
         if (requestConfig.apiFormat === "gemini") {
             return await requestGeminiStreamingResponse(requestConfig, toGeminiBody(requestConfig, messages, toGeminiToolOptions(tools, toolChoice)), onDelta, options);
         }
-        return await requestStreamingResponse(requestConfig, {
-            model: requestConfig.model,
-            input: toResponseInput(withSystemMessage(requestConfig, messages)),
-            tools: tools.map(toResponseTool),
-            tool_choice: toolChoice,
-            parallel_tool_calls: false,
-        }, onDelta, options);
+        return await requestStreamingResponse(
+            requestConfig,
+            {
+                model: requestConfig.model,
+                input: toResponseInput(withSystemMessage(requestConfig, messages)),
+                tools: tools.map(toResponseTool),
+                tool_choice: toolChoice,
+                parallel_tool_calls: false,
+            },
+            onDelta,
+            options,
+        );
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
     }

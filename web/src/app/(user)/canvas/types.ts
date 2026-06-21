@@ -58,6 +58,10 @@ export type CanvasNodeMetadata = {
     durationMs?: number;
     editableSvg?: string;
     editableSourceNodeId?: string;
+    vectorTraceEngine?: string;
+    vectorTraceMode?: string;
+    vectorSampledWidth?: number;
+    vectorSampledHeight?: number;
 };
 
 export type CanvasNodeData = {
