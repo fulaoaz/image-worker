@@ -203,6 +203,10 @@ function round(value: number) {
     return Math.round(value * 100) / 100;
 }
 
+function escapeXml(value: string) {
+    return value.replace(/[<>&"']/g, (char) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" })[char] || char);
+}
+
 function loadImage(source: string) {
     return new Promise<HTMLImageElement>((resolve, reject) => {
         const image = new Image();
