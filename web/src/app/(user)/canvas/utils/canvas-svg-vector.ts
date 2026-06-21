@@ -13,6 +13,8 @@ type AzureOcrResponse = {
     lines: AzureOcrLine[];
 };
 
+type TraceProfile = "detailed" | "safe";
+
 export function svgToDataUrl(svg: string) {
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
@@ -48,7 +50,11 @@ export type EditableSvgTraceResult = {
     sampledHeight: number;
 };
 
-const DEFAULT_TRACE_MAX_LONG_EDGE = 1800;
+const DEFAULT_TRACE_MAX_LONG_EDGE = 1280;
+const SAFE_TRACE_MAX_LONG_EDGE = 760;
+const TRACE_TIMEOUT_MS = 45000;
+const SAFE_TRACE_TIMEOUT_MS = 30000;
+const OCR_TIMEOUT_MS = 8000;
 let vtracerRequestId = 0;
 
 export async function rasterImageToEditableSvg(source: string, options: EditableSvgTraceOptions = {}): Promise<EditableSvgTraceResult> {
@@ -56,47 +62,88 @@ export async function rasterImageToEditableSvg(source: string, options: Editable
     const image = await loadImage(source);
     const width = Math.max(1, image.naturalWidth || image.width || 1);
     const height = Math.max(1, image.naturalHeight || image.height || 1);
-    const maxLongEdge = Math.max(512, Math.min(4096, Math.round(options.maxLongEdge || DEFAULT_TRACE_MAX_LONG_EDGE)));
-    const scale = Math.min(1, maxLongEdge / Math.max(width, height));
-    const sampledWidth = Math.max(1, Math.round(width * scale));
-    const sampledHeight = Math.max(1, Math.round(height * scale));
-    const imageData = imageToImageData(image, sampledWidth, sampledHeight);
-    const [tracedSvg, textLayer] = await Promise.all([
-        traceImageDataWithWorker(imageData, sampledWidth, sampledHeight, options.signal),
-        options.ocr === false ? Promise.resolve("") : recognizeTextLayer(source, { width, height, sampledWidth, sampledHeight, signal: options.signal }),
-    ]);
-    const svg = textLayer ? appendSvgTextLayer(tracedSvg, textLayer) : tracedSvg;
-    return { svg: annotateTracedSvg(svg, { width, height, viewBoxWidth: sampledWidth, viewBoxHeight: sampledHeight, title: options.title || "Editable image" }), width, height, sampledWidth, sampledHeight };
+    const traced = await traceImageWithFallback(image, width, height, options);
+    const textLayer = options.ocr === false ? "" : await recognizeTextLayer(source, { width, height, sampledWidth: traced.sampledWidth, sampledHeight: traced.sampledHeight, signal: options.signal });
+    const svg = textLayer ? appendSvgTextLayer(traced.svg, textLayer) : traced.svg;
+    return {
+        svg: annotateTracedSvg(svg, { width, height, viewBoxWidth: traced.sampledWidth, viewBoxHeight: traced.sampledHeight, title: options.title || "Editable image" }),
+        width,
+        height,
+        sampledWidth: traced.sampledWidth,
+        sampledHeight: traced.sampledHeight,
+    };
 }
 
-function traceImageDataWithWorker(imageData: ImageData, width: number, height: number, signal?: AbortSignal) {
+async function traceImageWithFallback(image: HTMLImageElement, width: number, height: number, options: EditableSvgTraceOptions) {
+    const primarySize = sampleSize(width, height, options.maxLongEdge || DEFAULT_TRACE_MAX_LONG_EDGE, 512, 1800);
+    try {
+        const imageData = imageToImageData(image, primarySize.sampledWidth, primarySize.sampledHeight);
+        const svg = await traceImageDataWithWorker(imageData, primarySize.sampledWidth, primarySize.sampledHeight, options.signal, "detailed", TRACE_TIMEOUT_MS);
+        return { svg, ...primarySize };
+    } catch (error) {
+        if (isAbortError(error)) throw error;
+        console.warn("VTracer detailed conversion failed, retrying safe profile", error);
+    }
+
+    const safeSize = sampleSize(width, height, Math.min(options.maxLongEdge || DEFAULT_TRACE_MAX_LONG_EDGE, SAFE_TRACE_MAX_LONG_EDGE), 384, SAFE_TRACE_MAX_LONG_EDGE);
+    const imageData = imageToImageData(image, safeSize.sampledWidth, safeSize.sampledHeight);
+    const svg = await traceImageDataWithWorker(imageData, safeSize.sampledWidth, safeSize.sampledHeight, options.signal, "safe", SAFE_TRACE_TIMEOUT_MS);
+    return { svg, ...safeSize };
+}
+
+function sampleSize(width: number, height: number, maxLongEdgeValue: number, minLongEdge: number, hardMaxLongEdge: number) {
+    const maxLongEdge = Math.max(minLongEdge, Math.min(hardMaxLongEdge, Math.round(maxLongEdgeValue)));
+    const scale = Math.min(1, maxLongEdge / Math.max(width, height));
+    return { sampledWidth: Math.max(1, Math.round(width * scale)), sampledHeight: Math.max(1, Math.round(height * scale)) };
+}
+
+function traceImageDataWithWorker(imageData: ImageData, width: number, height: number, signal?: AbortSignal, profile: TraceProfile = "detailed", timeoutMs = TRACE_TIMEOUT_MS) {
     return new Promise<string>((resolve, reject) => {
         if (signal?.aborted) {
             reject(new DOMException("Aborted", "AbortError"));
             return;
         }
         const id = ++vtracerRequestId;
-        const worker = new Worker(new URL("./canvas-vtracer.worker.ts", import.meta.url), { type: "module" });
+        let settled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let worker: Worker | null = null;
         const cleanup = () => {
+            if (timer) clearTimeout(timer);
             signal?.removeEventListener("abort", abort);
-            worker.terminate();
+            worker?.terminate();
         };
-        const abort = () => {
+        const finish = (callback: () => void) => {
+            if (settled) return;
+            settled = true;
             cleanup();
-            reject(new DOMException("Aborted", "AbortError"));
+            callback();
         };
+        const abort = () => finish(() => reject(new DOMException("Aborted", "AbortError")));
+
+        try {
+            worker = new Worker(new URL("./canvas-vtracer.worker.ts", import.meta.url), { type: "module" });
+        } catch (error) {
+            reject(error instanceof Error ? error : new Error("VTracer Worker 启动失败"));
+            return;
+        }
+
         worker.onmessage = (event: MessageEvent<{ id: number; type: "done"; svg: string } | { id: number; type: "error"; error: string }>) => {
             if (event.data.id !== id) return;
-            cleanup();
-            if (event.data.type === "done") resolve(event.data.svg);
-            else reject(new Error(event.data.error || "VTracer 转换失败"));
+            finish(() => {
+                if (event.data.type === "done") resolve(event.data.svg);
+                else reject(new Error(event.data.error || "VTracer 转换失败"));
+            });
         };
-        worker.onerror = (event) => {
-            cleanup();
-            reject(new Error(event.message || "VTracer Worker 运行失败"));
-        };
+        worker.onerror = (event) => finish(() => reject(new Error(event.message || "VTracer Worker 运行失败")));
+        worker.onmessageerror = () => finish(() => reject(new Error("VTracer Worker 返回结果失败")));
         signal?.addEventListener("abort", abort, { once: true });
-        worker.postMessage({ id, type: "trace", width, height, rgba: imageData.data }, [imageData.data.buffer]);
+        timer = setTimeout(() => finish(() => reject(new Error("本机描摹耗时过长，已自动切换低负载模式"))), timeoutMs);
+
+        try {
+            worker.postMessage({ id, type: "trace", width, height, rgba: imageData.data, profile }, [imageData.data.buffer]);
+        } catch (error) {
+            finish(() => reject(error instanceof Error ? error : new Error("VTracer Worker 发送图片失败")));
+        }
     });
 }
 
@@ -125,7 +172,7 @@ function annotateTracedSvg(svg: string, meta: { width: number; height: number; v
     const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
     title.textContent = meta.title;
     const desc = document.createElementNS("http://www.w3.org/2000/svg", "desc");
-    desc.textContent = "Generated locally by VTracer WASM high fidelity conversion.";
+    desc.textContent = "Generated locally by VTracer WASM conversion.";
     root.prepend(desc);
     root.prepend(title);
     return sanitizeEditableSvg(new XMLSerializer().serializeToString(root));
@@ -145,22 +192,45 @@ function appendSvgTextLayer(svg: string, textLayer: string) {
 
 async function recognizeTextLayer(source: string, meta: { width: number; height: number; sampledWidth: number; sampledHeight: number; signal?: AbortSignal }) {
     if (meta.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    const timeoutSignal = createTimeoutSignal(meta.signal, OCR_TIMEOUT_MS);
     try {
         const blob = await dataUrlToBlob(source);
         const response = await fetch("/api/ocr/azure", {
             method: "POST",
             headers: { "Content-Type": blob.type || "application/octet-stream" },
             body: blob,
-            signal: meta.signal,
+            signal: timeoutSignal.signal,
         });
         const payload = (await response.json().catch(() => null)) as (AzureOcrResponse & { error?: string }) | null;
         if (!response.ok || !payload) throw new Error(payload?.error || `Azure OCR 失败（${response.status}）`);
         return ocrResultToSvgText(payload, meta);
     } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") throw error;
+        if (meta.signal?.aborted || (isAbortError(error) && !timeoutSignal.timedOut())) throw error;
         console.warn("Azure OCR text layer failed", error);
         return "";
+    } finally {
+        timeoutSignal.cleanup();
     }
+}
+
+function createTimeoutSignal(parent: AbortSignal | undefined, timeoutMs: number) {
+    const controller = new AbortController();
+    let timedOut = false;
+    const abort = () => controller.abort(new DOMException("Aborted", "AbortError"));
+    if (parent?.aborted) abort();
+    else parent?.addEventListener("abort", abort, { once: true });
+    const timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort(new DOMException("Timeout", "TimeoutError"));
+    }, timeoutMs);
+    return {
+        signal: controller.signal,
+        timedOut: () => timedOut,
+        cleanup: () => {
+            clearTimeout(timer);
+            parent?.removeEventListener("abort", abort);
+        },
+    };
 }
 
 async function dataUrlToBlob(dataUrl: string) {
@@ -214,6 +284,10 @@ function loadImage(source: string) {
         image.onerror = () => reject(new Error("图片读取失败，无法转成可编辑 SVG"));
         image.src = source;
     });
+}
+
+function isAbortError(error: unknown) {
+    return error instanceof DOMException && error.name === "AbortError";
 }
 
 export function sanitizeEditableSvg(svg: string) {

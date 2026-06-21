@@ -1655,7 +1655,7 @@ function InfiniteCanvasPage() {
                 return;
             }
             const key = "local-vectorize-image";
-            message.loading({ key, content: "正在使用本机浏览器高保真描摹 SVG，不占用服务器...", duration: 0 });
+            message.loading({ key, content: "正在使用本机浏览器描摹 SVG，复杂图片会自动降级防卡住...", duration: 0 });
             const controller = startGenerationRequest(node.id, node.id, node.id);
             try {
                 const dataUrl = await imageToDataUrl({ url: node.metadata.content, storageKey: node.metadata.storageKey });

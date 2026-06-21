@@ -1,11 +1,14 @@
 import { ColorMode, Hierarchical, PathSimplifyMode, TracerConfig, convertImageToSvg, init, isReady } from "wasm_vtracer";
 
+type TraceProfile = "detailed" | "safe";
+
 type TraceRequest = {
     id: number;
     type: "trace";
     width: number;
     height: number;
     rgba: Uint8ClampedArray;
+    profile?: TraceProfile;
 };
 
 type TraceResponse = { id: number; type: "done"; svg: string } | { id: number; type: "error"; error: string };
@@ -24,18 +27,7 @@ self.onmessage = (event: MessageEvent<TraceRequest>) => {
         }
 
         config = new TracerConfig();
-        config.presetPhoto();
-        config.setColorMode(ColorMode.Color);
-        config.setHierarchical(Hierarchical.Stacked);
-        config.setPathSimplifyMode(PathSimplifyMode.Spline);
-        config.setFilterSpeckle(0);
-        config.setColorPrecision(8);
-        config.setLayerDifference(4);
-        config.setCornerThreshold(60);
-        config.setLengthThreshold(3.5);
-        config.setMaxIterations(20);
-        config.setSpliceThreshold(30);
-        config.setPathPrecision(4);
+        applyTraceProfile(config, request.profile || "detailed");
 
         const rgba = new Uint8Array(request.rgba.buffer, request.rgba.byteOffset, request.rgba.byteLength);
         const svg = convertImageToSvg(rgba, request.width, request.height, config);
@@ -46,3 +38,31 @@ self.onmessage = (event: MessageEvent<TraceRequest>) => {
         config?.free();
     }
 };
+
+function applyTraceProfile(config: TracerConfig, profile: TraceProfile) {
+    config.presetPhoto();
+    config.setColorMode(ColorMode.Color);
+    config.setHierarchical(Hierarchical.Stacked);
+    config.setPathSimplifyMode(PathSimplifyMode.Spline);
+
+    if (profile === "safe") {
+        config.setFilterSpeckle(4);
+        config.setColorPrecision(6);
+        config.setLayerDifference(16);
+        config.setCornerThreshold(60);
+        config.setLengthThreshold(5);
+        config.setMaxIterations(8);
+        config.setSpliceThreshold(45);
+        config.setPathPrecision(2);
+        return;
+    }
+
+    config.setFilterSpeckle(1);
+    config.setColorPrecision(7);
+    config.setLayerDifference(8);
+    config.setCornerThreshold(60);
+    config.setLengthThreshold(4);
+    config.setMaxIterations(12);
+    config.setSpliceThreshold(35);
+    config.setPathPrecision(3);
+}
