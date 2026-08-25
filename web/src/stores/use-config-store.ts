@@ -4,6 +4,7 @@ import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
+import { readRuntimeAiChannels } from "@/constant/runtime-config";
 
 export type ApiCallFormat = "openai" | "gemini";
 export type ModelCapability = "image" | "video" | "text" | "audio";
@@ -358,6 +359,11 @@ function normalizeChannels(config: AiConfig) {
             models: normalizeChannelModels(channel.models),
         }),
     );
+    // 运行期注入的渠道按 id 补入，已存在的同 id 渠道保留用户本地修改。
+    readRuntimeAiChannels().forEach((channel) => {
+        if (channels.some((item) => item.id === channel.id)) return;
+        channels.push(createModelChannel({ ...channel, models: normalizeChannelModels(channel.models) }));
+    });
     if (!channels.length) {
         channels.push(
             createModelChannel({

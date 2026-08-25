@@ -22,12 +22,10 @@
 ## Business
 
 - [Open-source License](/docs/business/license)
-- [Business Cooperation](/docs/business/business)
 
 ## Support and Security
 
 - [Report a Vulnerability](/docs/support/security)
-- [Sponsor the Project](/docs/support/sponsor)
 
 ## Project Progress
 

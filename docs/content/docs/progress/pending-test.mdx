@@ -42,4 +42,9 @@ The current release needs manual verification in these areas:
 - Settings import/export and WebDAV-related configuration.
 - Local storage settings: the Settings page should provide a Local storage tab that reads only the `infinite-canvas` database and shows IndexedDB usage, total site usage, browser quota, quota percentage, and per-object-store record counts and content size; refreshing after local data changes should update the figures without blocking the rest of the page.
 
+- Editable SVG conversion: the image toolbar should offer Make editable and Edit SVG. Conversion should trace locally through VTracer WASM in a worker, fall back to the safe profile when the detailed profile fails or times out, and keep the original aspect ratio on the new node.
+- Editable SVG text layer: conversion should recognize text locally with tesseract.js and append it as an `editable-ocr-text` group of `<text>` elements positioned over the traced artwork. Recognition failures or timeouts must not discard the traced vector result, and no image data may leave the browser.
+- Visual SVG editing: clicking a shape or text should select it, dragging should move it, and the side panel should edit text content, fill, stroke, and opacity plus delete the selection. Source editing stays available as an advanced option, and saving a pasted SVG that only declares `viewBox` should keep the correct node proportions.
+- Runtime AI channels: setting `AI_CHANNELS` to a JSON array on the container should merge those channels into the browser config on first load while preserving locally edited channels with the same id; malformed entries should be skipped instead of clearing every preset channel. Note that injected keys reach the browser, so this differs in security posture from server-held credentials.
+
 The Chinese version contains the complete item-by-item acceptance checklist.

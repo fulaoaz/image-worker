@@ -5,7 +5,7 @@ import { localizePath, type Locale } from '@/lib/i18n';
 import type { Metadata } from 'next';
 
 const githubUrl = `https://github.com/${gitConfig.user}/${gitConfig.repo}`;
-const demoUrl = 'https://canvas.best/';
+const demoUrl = 'https://github.com/fulaoaz/image-worker';
 const starHistoryUrl = `https://www.star-history.com/?repos=${gitConfig.user}%2F${gitConfig.repo}&type=date`;
 const starHistoryChart = `https://api.star-history.com/chart?repos=${gitConfig.user}/${gitConfig.repo}&type=date&transparent=true`;
 const darkStarHistoryChart = `${starHistoryChart}&theme=dark`;
@@ -38,7 +38,7 @@ const messages = {
     demo: 'Live Demo',
     gallery: 'Gallery',
     features: 'Explore Features',
-    previewAlt: 'Infinite Canvas preview',
+    previewAlt: 'Image Worker preview',
     contributors: 'Contributors',
     contributorsDescription: 'Thank you to everyone who has contributed to this project',
     contributorsAlt: 'Contributor avatars',

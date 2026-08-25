@@ -1,11 +1,22 @@
 services:
   app:
-    image: ghcr.io/basketikun/infinite-canvas:latest
-    container_name: infinite-canvas
+    image: ghcr.io/fulaoaz/image-worker:latest
+    container_name: image-worker
     ports:
       - "3000:3000"
+    network_mode: bridge
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     restart: unless-stopped
     # 统计分析（可选，默认关闭）。每家一个独立变量，填了谁就启用谁，可同时启用多家：
     # environment:
     #   ANALYTICS_GA4_ID: G-XXXXXXXXXX                    # Google Analytics 4 衡量 ID
     #   ANALYTICS_BAIDU_ID: xxxxxxxxxxxxxxxxxxxxxxxxxxxx   # 百度统计站点 ID
+    #
+    # 预置模型渠道（可选，默认关闭）。部署方填好后，用户打开页面即带这些渠道，不必自己填 Key。
+    # 注意：本项目是纯静态前端，注入值会随 config.js 下发到浏览器，用户可在开发者工具里看到 apiKey。
+    # 仅适合自己或可信成员使用的部署；公网多人共用请留空，让每个用户自己在设置里填。
+    #   AI_CHANNELS: >-
+    #     [{"id":"server","name":"服务器渠道","baseUrl":"https://api.openai.com",
+    #       "apiKey":"sk-xxx","apiFormat":"openai","models":["gpt-image-2","gpt-5.5"]}]

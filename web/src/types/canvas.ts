@@ -82,6 +82,10 @@ export type CanvasNodeMetadata = {
     durationMs?: number;
     groupId?: string;
     interactive?: boolean; // Plugin node interaction/move state; see CanvasNodeDefinition.interactionToggle.
+    editableSvg?: string; // Vector source for online SVG editing; see canvas-svg-vector.
+    editableSourceNodeId?: string;
+    vectorSampledWidth?: number;
+    vectorSampledHeight?: number;
 };
 
 export type CanvasNodeData = {

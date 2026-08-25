@@ -1,6 +1,6 @@
 services:
   app:
-    image: infinite-canvas:local
+    image: image-worker:local
     build:
       context: .
       dockerfile: Dockerfile

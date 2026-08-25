@@ -9,7 +9,7 @@ import { requestEdit, requestGeneration, requestImageQuestion } from "@/services
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { requestVideoGeneration, storeGeneratedVideo } from "@/services/api/video";
 import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
-import { uploadImage } from "@/services/image-storage";
+import { imageToDataUrl, uploadImage } from "@/services/image-storage";
 import { uploadMediaFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
@@ -17,6 +17,7 @@ import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { cropDataUrl, splitDataUrl, upscaleDataUrl } from "@/lib/canvas/canvas-image-data";
+import { isEditableSvgNode, rasterImageToEditableSvg, readSvgSize, sanitizeEditableSvg, svgToBlob } from "@/lib/canvas/canvas-svg-vector";
 import { fitNodeSize, nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { captureVideoFrame, type VideoFramePosition } from "@/lib/canvas/canvas-video-frame";
 import { App, Button, Modal } from "antd";
@@ -30,6 +31,7 @@ import { CanvasNodeCropDialog, type CanvasImageCropRect } from "@/components/can
 import { CanvasNodeMaskEditDialog, type CanvasImageMaskEditPayload } from "@/components/canvas/canvas-node-mask-edit-dialog";
 import { CanvasNodeSplitDialog, type CanvasImageSplitParams } from "@/components/canvas/canvas-node-split-dialog";
 import { CanvasNodeUpscaleDialog, type CanvasImageUpscaleParams } from "@/components/canvas/canvas-node-upscale-dialog";
+import { CanvasNodeSvgEditDialog } from "@/components/canvas/canvas-node-svg-edit-dialog";
 import { buildNodeGenerationContext, buildNodeGenerationInputs, buildNodeResponseMessages, hydrateNodeGenerationContext, type NodeGenerationInput } from "@/components/canvas/canvas-node-generation";
 import { CanvasNodeHoverToolbar, CanvasNodeInfoModal } from "@/components/canvas/canvas-node-hover-toolbar";
 import { InfiniteCanvas } from "@/components/canvas/infinite-canvas";
@@ -231,6 +233,7 @@ function InfiniteCanvasPage() {
     const [splitNodeId, setSplitNodeId] = useState<string | null>(null);
     const [upscaleNodeId, setUpscaleNodeId] = useState<string | null>(null);
     const [superResolveNodeId, setSuperResolveNodeId] = useState<string | null>(null);
+    const [svgEditNodeId, setSvgEditNodeId] = useState<string | null>(null);
     const [angleNodeId, setAngleNodeId] = useState<string | null>(null);
     const [previewNodeId, setPreviewNodeId] = useState<string | null>(null);
     const [previewImageId, setPreviewImageId] = useState<string | null>(null);
@@ -600,6 +603,7 @@ function InfiniteCanvasPage() {
     const splitNode = splitNodeId ? nodeById.get(splitNodeId) || null : null;
     const upscaleNode = upscaleNodeId ? nodeById.get(upscaleNodeId) || null : null;
     const superResolveNode = superResolveNodeId ? nodeById.get(superResolveNodeId) || null : null;
+    const svgEditNode = svgEditNodeId ? nodeById.get(svgEditNodeId) || null : null;
     const angleNode = angleNodeId ? nodeById.get(angleNodeId) || null : null;
     const contextMenuNode = contextMenu?.type === "node" ? nodeById.get(contextMenu.nodeId) || null : null;
     const previewNode = previewNodeId ? nodeById.get(previewNodeId) || null : null;
@@ -1869,6 +1873,87 @@ function InfiniteCanvasPage() {
         setDialogNodeId(childId);
     }, []);
 
+    // 位图转矢量在本机浏览器 Worker 里完成，结果作为可在线编辑的 SVG 子节点接到原节点右侧。
+    const createEditableImageNode = useCallback(
+        async (node: CanvasNodeData) => {
+            if (node.type !== CanvasNodeType.Image || !node.metadata?.content) {
+                message.warning(t("canvas.projectPage.emptyEditable"));
+                return;
+            }
+            const key = "canvas-vectorize-image";
+            message.loading({ key, content: t("canvas.projectPage.editableTracing"), duration: 0 });
+            const controller = startGenerationRequest(node.id, node.id, node.id);
+            try {
+                const dataUrl = await imageToDataUrl({ url: node.metadata.content, storageKey: node.metadata.storageKey });
+                if (!dataUrl) throw new Error(t("canvas.projectPage.editableFailed"));
+                const traced = await rasterImageToEditableSvg(dataUrl, { title: node.title || "Editable image", signal: controller.signal });
+                const svg = sanitizeEditableSvg(traced.svg);
+                const image = await uploadImage(svgToBlob(svg));
+                const size = fitNodeSize(traced.width, traced.height, node.width, node.height);
+                const childId = nanoid();
+                setNodes((prev) => [
+                    ...prev,
+                    {
+                        id: childId,
+                        type: CanvasNodeType.Image,
+                        title: `${node.title || "Image"} ${t("canvas.projectPage.editableSuffix")}`,
+                        position: { x: node.position.x + node.width + 96, y: node.position.y },
+                        width: size.width,
+                        height: size.height,
+                        metadata: {
+                            ...imageMetadata(image),
+                            prompt: node.metadata?.prompt,
+                            editableSvg: svg,
+                            editableSourceNodeId: node.id,
+                            vectorSampledWidth: traced.sampledWidth,
+                            vectorSampledHeight: traced.sampledHeight,
+                        },
+                    },
+                ]);
+                setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
+                setSelectedNodeIds(new Set([childId]));
+                setSvgEditNodeId(childId);
+                setDialogNodeId(null);
+                message.success({ key, content: t("canvas.projectPage.editableDone"), duration: 2 });
+            } catch (error) {
+                if (isGenerationCanceled(error)) return message.destroy(key);
+                message.error({ key, content: error instanceof Error ? error.message : t("canvas.projectPage.editableFailed"), duration: 4 });
+            } finally {
+                finishGenerationRequest(node.id, controller);
+            }
+        },
+        [finishGenerationRequest, message, startGenerationRequest, t],
+    );
+
+    const openSvgEditor = useCallback(
+        (node: CanvasNodeData) => {
+            if (node.type !== CanvasNodeType.Image || !node.metadata?.content) {
+                message.warning(t("canvas.projectPage.emptyEditable"));
+                return;
+            }
+            if (!isEditableSvgNode(node)) return void createEditableImageNode(node);
+            setSvgEditNodeId(node.id);
+        },
+        [createEditableImageNode, message, t],
+    );
+
+    const saveSvgNode = useCallback(
+        async (node: CanvasNodeData, svg: string) => {
+            try {
+                const clean = sanitizeEditableSvg(svg);
+                const image = await uploadImage(svgToBlob(clean));
+                const svgSize = readSvgSize(clean);
+                const size = fitNodeSize(svgSize?.width || node.width, svgSize?.height || node.height, node.width, node.height);
+                setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(image), editableSvg: clean } } : item)));
+                setSvgEditNodeId(null);
+                message.success(t("canvas.projectPage.editableSaved"));
+            } catch (error) {
+                message.error(error instanceof Error ? error.message : t("canvas.projectPage.editableSaveFailed"));
+            }
+        },
+        [message, t],
+    );
+
     const generateAngleNode = useCallback(
         async (node: CanvasNodeData, params: CanvasImageAngleParams) => {
             if (!node.metadata?.content) return;
@@ -3084,6 +3169,8 @@ function InfiniteCanvasPage() {
                     onAngle={(node) => setAngleNodeId(node.id)}
                     onViewImage={handleNodeViewImage}
                     onReversePrompt={createImageReversePromptNodes}
+                    onMakeEditable={(node) => void createEditableImageNode(node)}
+                    onEditSvg={openSvgEditor}
                     onRetry={(node) => void handleRetryNode(node)}
                     onToggleFreeResize={(node) => toggleNodeFreeResize(node.id)}
                     onDelete={(node) => deleteNodes(new Set([node.id]))}
@@ -3157,6 +3244,16 @@ function InfiniteCanvasPage() {
 
                 {upscaleNode?.metadata?.content ? (
                     <CanvasNodeUpscaleDialog dataUrl={upscaleNode.metadata.content} open={Boolean(upscaleNode)} onClose={() => setUpscaleNodeId(null)} onConfirm={(params) => void upscaleImageNode(upscaleNode!, params)} />
+                ) : null}
+
+                {svgEditNode?.metadata?.content ? (
+                    <CanvasNodeSvgEditDialog
+                        source={svgEditNode.metadata.content}
+                        initialSvg={svgEditNode.metadata.editableSvg}
+                        open={Boolean(svgEditNode)}
+                        onClose={() => setSvgEditNodeId(null)}
+                        onConfirm={(svg) => void saveSvgNode(svgEditNode!, svg)}
+                    />
                 ) : null}
 
                 <Modal title={t("canvas.projectPage.superResolve")} open={Boolean(superResolveNode?.metadata?.content)} centered footer={null} onCancel={() => setSuperResolveNodeId(null)}>

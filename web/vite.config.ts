@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
+import wasm from "vite-plugin-wasm";
 import { defineConfig, type Plugin } from "vite";
 
 import { parseChangelog } from "./src/lib/release";
@@ -40,7 +41,10 @@ function localPluginsManifest(): Plugin {
 
 export default defineConfig({
     base: process.env.VITE_BASE || "/",
-    plugins: [react(), localPluginsManifest()],
+    // wasm(): wasm_vtracer 走 wasm-bindgen 的 bundler 目标（import 直接引 .wasm），Vite 原生不支持，需要该插件桥接。
+    plugins: [react(), wasm(), localPluginsManifest()],
+    // 矢量描摹在 Worker 里跑，Worker 构建同样需要 wasm 插件。
+    worker: { format: "es", plugins: () => [wasm()] },
     resolve: {
         alias: {
             "@": resolve(webDir, "src"),

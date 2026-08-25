@@ -14,9 +14,19 @@ sanitize_id() {
 GA4_ID=$(sanitize_id "${ANALYTICS_GA4_ID:-}")
 BAIDU_ID=$(sanitize_id "${ANALYTICS_BAIDU_ID:-}")
 
+# AI_CHANNELS 是部署者预置的渠道 JSON 数组，用单引号包裹写入，并转义单引号和反斜杠，
+# 避免值里的引号截断 config.js。注意：该值会下发到浏览器，密钥对使用者可见，
+# 仅适合个人或可信环境预置，不等同于服务端保管密钥。
+escape_js_single_quoted() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e "s/'/\\\\'/g" -e 's/$/\\n/' | tr -d '\n'
+}
+
+AI_CHANNELS_JSON=$(escape_js_single_quoted "${AI_CHANNELS:-}")
+
 cat > /usr/share/nginx/html/config.js <<EOF
 window.__RUNTIME_CONFIG__ = {
   ANALYTICS_GA4_ID: "${GA4_ID}",
-  ANALYTICS_BAIDU_ID: "${BAIDU_ID}"
+  ANALYTICS_BAIDU_ID: "${BAIDU_ID}",
+  AI_CHANNELS: '${AI_CHANNELS_JSON}'
 };
 EOF

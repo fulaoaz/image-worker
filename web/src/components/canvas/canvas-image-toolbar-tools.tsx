@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
-import { Brush, Camera, Copy, FileText, Grid2x2, Lock, LockOpen, Maximize2, Scissors, Sparkles, Upload, ZoomIn } from "lucide-react";
+import { Brush, Camera, Copy, FileText, Grid2x2, Lock, LockOpen, Maximize2, PenLine, Scissors, Sparkles, Upload, WandSparkles, ZoomIn } from "lucide-react";
 
 import type { CanvasNodeData } from "@/types/canvas";
+import { isEditableSvgNode } from "@/lib/canvas/canvas-svg-vector";
 import i18n from "@/i18n";
 
-export type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "maskEdit" | "crop" | "split" | "upscale" | "superResolve" | "angle" | "view";
+export type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "makeEditable" | "editSvg" | "replace" | "resize" | "maskEdit" | "crop" | "split" | "upscale" | "superResolve" | "angle" | "view";
 export type ImageQuickToolId = "info" | "delete" | "saveAsset" | "download" | ImageNodeActionToolId;
 
 export type ImageToolHandlers = {
@@ -19,6 +20,8 @@ export type ImageToolHandlers = {
     onViewImage: (node: CanvasNodeData) => void;
     onCopyPrompt: (node: CanvasNodeData) => void;
     onReversePrompt: (node: CanvasNodeData) => void;
+    onMakeEditable: (node: CanvasNodeData) => void;
+    onEditSvg: (node: CanvasNodeData) => void;
 };
 
 export type ImageToolDefinition = {
@@ -56,6 +59,23 @@ export const imageToolDefinitions: ImageToolDefinition[] = [
         title: () => i18n.t("canvas.imageTools.reversePromptTitle"),
         icon: () => <FileText className="size-4" />,
         run: (node, handlers) => handlers.onReversePrompt(node),
+    },
+    {
+        id: "makeEditable",
+        defaultVisible: true,
+        label: () => i18n.t("canvas.imageTools.makeEditable"),
+        title: () => i18n.t("canvas.imageTools.makeEditableTitle"),
+        icon: () => <WandSparkles className="size-4" />,
+        run: (node, handlers) => handlers.onMakeEditable(node),
+    },
+    {
+        id: "editSvg",
+        defaultVisible: true,
+        label: () => i18n.t("canvas.imageTools.editSvg"),
+        title: () => i18n.t("canvas.imageTools.editSvgTitle"),
+        icon: () => <PenLine className="size-4" />,
+        active: (node) => isEditableSvgNode(node),
+        run: (node, handlers) => handlers.onEditSvg(node),
     },
     {
         id: "replace",
