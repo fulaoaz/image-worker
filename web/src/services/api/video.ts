@@ -23,12 +23,12 @@ export type VideoGenerationTaskState = { status: "pending" } | { status: "comple
 const pluginVideoResults = new Map<string, VideoGenerationResult>();
 
 function aiApiUrl(config: AiConfig, path: string) {
-    return buildApiUrl(config.baseUrl, path);
+    return config.serverManaged ? `/api/ai-proxy${path}` : buildApiUrl(config.baseUrl, path);
 }
 
 function aiHeaders(config: AiConfig, contentType?: string) {
     return {
-        Authorization: `Bearer ${config.apiKey}`,
+        ...(config.serverManaged ? { "x-ai-channel-id": config.channelId || "" } : { Authorization: `Bearer ${config.apiKey}` }),
         ...(contentType ? { "Content-Type": contentType } : {}),
     };
 }
@@ -67,7 +67,7 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
 
 async function createPluginVideoTask(config: AiConfig, model: string, script: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
     if (!config.baseUrl.trim()) throw new Error(apiText("baseUrlRequired"));
-    if (!config.apiKey.trim()) throw new Error(apiText("apiKeyRequired"));
+    if (!config.apiKey.trim() && !config.serverManaged) throw new Error(apiText("apiKeyRequired"));
     const refs = await Promise.all(references.map((image) => imageToDataUrl(image)));
     const result = videoPluginResult(
         await runModelPlugin({
@@ -166,7 +166,7 @@ async function videoResultFromUrl(url: string, options?: RequestOptions): Promis
 function assertVideoConfig(config: AiConfig, model: string) {
     if (!model) throw new Error(apiText("videoModelRequired"));
     if (!config.baseUrl.trim()) throw new Error(apiText("baseUrlRequired"));
-    if (!config.apiKey.trim()) throw new Error(apiText("apiKeyRequired"));
+    if (!config.apiKey.trim() && !config.serverManaged) throw new Error(apiText("apiKeyRequired"));
     if (config.apiFormat === "gemini") throw new Error(apiText("geminiVideoUnsupported"));
 }
 

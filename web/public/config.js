@@ -1,3 +1,2 @@
-// Runtime configuration regenerated from environment variables by docker-entrypoint.sh at container startup.
-// Local development and deployments without the entrypoint use these empty defaults, leaving analytics disabled.
+// Development fallback. Containers serve this value dynamically from the application server.
 window.__RUNTIME_CONFIG__ = window.__RUNTIME_CONFIG__ || {};

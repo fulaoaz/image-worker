@@ -1,10 +1,10 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
-import { readRuntimeAiChannels } from "@/constant/runtime-config";
+import { fetchPublicServerModelChannels } from "@/services/api/server-ai-config";
 
 export type ApiCallFormat = "openai" | "gemini";
 export type ModelCapability = "image" | "video" | "text" | "audio";
@@ -23,6 +23,7 @@ export type ModelChannel = {
     apiKey: string;
     apiFormat: ApiCallFormat;
     models: ChannelModel[];
+    serverManaged?: boolean;
 };
 
 export type AiConfig = {
@@ -30,6 +31,8 @@ export type AiConfig = {
     baseUrl: string;
     apiKey: string;
     apiFormat: ApiCallFormat;
+    channelId?: string;
+    serverManaged?: boolean;
     channels: ModelChannel[];
     model: string;
     imageModel: string;
@@ -73,6 +76,8 @@ export const defaultConfig: AiConfig = {
     baseUrl: OPENAI_BASE_URL,
     apiKey: "",
     apiFormat: "openai",
+    channelId: "default",
+    serverManaged: false,
     channels: [
         {
             id: "default",
@@ -187,7 +192,7 @@ export function resolveModelScript(config: AiConfig, value: string) {
 
 function isAiConfigReady(config: AiConfig, model: string) {
     const channel = resolveModelChannel(config, model);
-    return Boolean(model.trim() && channel.baseUrl.trim() && channel.apiKey.trim());
+    return Boolean(model.trim() && channel.baseUrl.trim() && (channel.apiKey.trim() || channel.serverManaged));
 }
 
 export const useConfigStore = create<ConfigStore>()(
@@ -219,7 +224,10 @@ export const useConfigStore = create<ConfigStore>()(
         }),
         {
             name: CONFIG_STORE_KEY,
-            partialize: (state) => ({ config: state.config, webdav: state.webdav }),
+            partialize: (state) => ({
+                config: { ...state.config, channelMode: "local", serverManaged: false, channels: state.config.channels.filter((channel) => !channel.serverManaged) },
+                webdav: state.webdav,
+            }),
             merge: (persisted, current) => {
                 const persistedState = (persisted || {}) as Partial<ConfigStore>;
                 const persistedConfig = (persistedState.config || {}) as Partial<AiConfig>;
@@ -260,7 +268,66 @@ export const useConfigStore = create<ConfigStore>()(
 
 export function useEffectiveConfig() {
     const config = useConfigStore((state) => state.config);
-    return useMemo(() => ({ ...config, channelMode: "local" as const }), [config]);
+    const [serverChannels, setServerChannels] = useState<ModelChannel[]>([]);
+
+    useEffect(() => {
+        let active = true;
+        void fetchServerModelChannels().then((channels) => active && setServerChannels(channels));
+        return () => {
+            active = false;
+        };
+    }, []);
+
+    return useMemo(() => {
+        const localChannels = config.channels.filter((channel) => !channel.serverManaged);
+        const serverChannelIds = new Set(serverChannels.map((channel) => channel.id));
+        return withModelChannels(config, [...serverChannels, ...localChannels.filter((channel) => !serverChannelIds.has(channel.id))]);
+    }, [config, serverChannels]);
+}
+
+export async function fetchServerModelChannels() {
+    try {
+        const channels = await fetchPublicServerModelChannels();
+        return channels.map((channel) => createModelChannel({ ...channel, apiKey: "", serverManaged: true }));
+    } catch {
+        return [];
+    }
+}
+
+export function withModelChannels(config: AiConfig, sourceChannels: ModelChannel[]) {
+    const channels = sourceChannels.map((channel) => createModelChannel(channel));
+    const models = modelOptionsFromChannels(channels);
+    const next: AiConfig = {
+        ...config,
+        channelMode: channels.some((channel) => channel.serverManaged) ? "remote" : "local",
+        channels,
+        models,
+        baseUrl: channels[0]?.baseUrl || config.baseUrl,
+        apiKey: channels[0]?.apiKey || config.apiKey,
+        apiFormat: channels[0]?.apiFormat || config.apiFormat,
+        channelId: channels[0]?.id || config.channelId,
+        serverManaged: Boolean(channels[0]?.serverManaged),
+    };
+    return {
+        ...next,
+        imageModel: pickReadyModel(next, "image", config.imageModel),
+        videoModel: pickReadyModel(next, "video", config.videoModel),
+        textModel: pickReadyModel(next, "text", config.textModel),
+        audioModel: pickReadyModel(next, "audio", config.audioModel),
+    };
+}
+
+function pickReadyModel(config: AiConfig, capability: ModelCapability, current: string) {
+    const options = selectableModelsByCapability(config, capability);
+    const normalized = normalizeModelOptionValue(current, config.channels);
+    if (options.includes(normalized) && isModelOptionReady(normalized, config.channels)) return normalized;
+    return options.find((model) => isModelOptionReady(model, config.channels)) || (options.includes(normalized) ? normalized : options[0] || "");
+}
+
+function isModelOptionReady(value: string, channels: ModelChannel[]) {
+    const decoded = decodeChannelModel(value);
+    const channel = decoded ? channels.find((item) => item.id === decoded.channelId) : channels.find((item) => item.models.some((model) => model.name === value));
+    return Boolean(channel && (channel.serverManaged || channel.apiKey.trim()));
 }
 
 /** Normalize a mixed list of raw model names or model objects into deduped ChannelModel entries. */
@@ -287,6 +354,7 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         apiKey: channel?.apiKey || "",
         apiFormat,
         models: normalizeChannelModels(channel?.models),
+        serverManaged: Boolean(channel?.serverManaged),
     };
 }
 
@@ -324,8 +392,7 @@ export function normalizeModelOptionValue(value: string | undefined, channels: M
     if (!model) return "";
     const decoded = decodeChannelModel(model);
     if (decoded) {
-        const channel = channels.find((item) => item.id === decoded.channelId);
-        return channel && channel.models.some((item) => item.name === decoded.model) ? model : "";
+        return model;
     }
     const channel = channels.find((item) => item.models.some((entry) => entry.name === model)) || channels[0];
     return channel && channel.models.some((item) => item.name === model) ? encodeChannelModel(channel.id, model) : model;
@@ -346,11 +413,13 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
         baseUrl: channel.baseUrl,
         apiKey: channel.apiKey,
         apiFormat: channel.apiFormat,
+        channelId: channel.id,
+        serverManaged: Boolean(channel.serverManaged),
     };
 }
 
 function normalizeChannels(config: AiConfig) {
-    const persistedChannels = Array.isArray(config.channels) ? config.channels : [];
+    const persistedChannels = Array.isArray(config.channels) ? config.channels.filter((channel) => !channel.serverManaged) : [];
     const channels = persistedChannels.map((channel, index) =>
         createModelChannel({
             ...channel,
@@ -359,11 +428,6 @@ function normalizeChannels(config: AiConfig) {
             models: normalizeChannelModels(channel.models),
         }),
     );
-    // 运行期注入的渠道按 id 补入，已存在的同 id 渠道保留用户本地修改。
-    readRuntimeAiChannels().forEach((channel) => {
-        if (channels.some((item) => item.id === channel.id)) return;
-        channels.push(createModelChannel({ ...channel, models: normalizeChannelModels(channel.models) }));
-    });
     if (!channels.length) {
         channels.push(
             createModelChannel({

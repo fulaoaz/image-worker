@@ -63,6 +63,8 @@ docker compose up -d
 
 首次打开后进入右上角配置，填入自己的 OpenAI 兼容 `Base URL` 和 `API Key`。
 
+如需由服务器统一保管模型渠道，在部署目录创建 `.env` 并填写 `ADMIN_TOKEN`，然后访问 `/admin` 保存渠道；API Key 会保存在容器挂载的 `data/` 目录，普通用户只会通过服务端代理使用模型。
+
 如果默认的OpenAI接口调用方式与您的API不同，可自定义生图/视频脚本调用。
 
 ## 开源协议

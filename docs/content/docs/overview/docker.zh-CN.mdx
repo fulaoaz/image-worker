@@ -49,7 +49,19 @@ docker compose -f docker-compose.local.yml up -d --build
 
 ## 数据说明
 
-当前主应用镜像只启动 Next.js。画布、我的素材、生成记录和 AI API Key 默认保存在浏览器本地；第三方提示词由浏览器前端直连拉取，不需要额外挂载数据目录。
+主应用镜像会同时提供 Vite 页面和轻量配置 API。画布、我的素材、生成记录和用户自己填写的 AI API Key 默认仍保存在浏览器本地；第三方提示词由浏览器前端直连拉取。
+
+## 服务端模型渠道
+
+如果要让多人共用服务器上的模型渠道，请在 `docker-compose.yml` 同级创建 `.env`，再启动容器：
+
+```dotenv
+ADMIN_TOKEN=替换为足够长的随机字符串
+```
+
+访问 `/admin`，填写这个 Token 后即可新增、读取和保存模型渠道。默认 Compose 会把配置写入并挂载到 `data/ai-model-channels.json`；API Key 只保存在该服务器文件中，浏览器只会收到模型名称和能力，实际请求由应用服务端转发。
+
+也可以使用 `AI_MODEL_CHANNELS` 写入首次启动时的 JSON 渠道列表；一旦在 `/admin` 保存过配置，数据文件会优先于环境变量。
 
 ## 统计分析（可选）
 

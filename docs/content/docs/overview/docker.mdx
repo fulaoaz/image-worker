@@ -37,7 +37,19 @@ cd docs
 docker compose -f docker-compose.local.yml up -d --build
 ```
 
-The main application container only runs Next.js. Canvases, My Assets, generation history, and API keys are stored in the browser by default, while prompt repositories are fetched directly by the frontend. No persistent data volume is required for this data.
+The application container serves the Vite app and its small configuration API. Canvases, My Assets, generation history, and user-provided API keys remain in the browser by default, while prompt repositories are fetched directly by the frontend.
+
+## Server-managed model providers
+
+For a shared deployment, create a `.env` file beside `docker-compose.yml` before starting the container:
+
+```dotenv
+ADMIN_TOKEN=replace-with-a-long-random-token
+```
+
+Then open `/admin`, enter that token, and add the providers and models you want users to use. The server writes the configuration to `data/ai-model-channels.json`, which is mounted as a Docker volume by the default Compose file. API keys stay in that file and requests are forwarded by the application server; browsers receive model names and capabilities only.
+
+You can also define an initial JSON provider list with `AI_MODEL_CHANNELS`, but after the first save in `/admin`, the saved data file takes precedence.
 
 ## Optional analytics
 

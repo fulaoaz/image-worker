@@ -10,12 +10,12 @@ type RequestOptions = { signal?: AbortSignal };
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
 
 function aiApiUrl(config: AiConfig, path: string) {
-    return buildApiUrl(config.baseUrl, path);
+    return config.serverManaged ? `/api/ai-proxy${path}` : buildApiUrl(config.baseUrl, path);
 }
 
 function aiHeaders(config: AiConfig) {
     return {
-        Authorization: `Bearer ${config.apiKey}`,
+        ...(config.serverManaged ? { "x-ai-channel-id": config.channelId || "" } : { Authorization: `Bearer ${config.apiKey}` }),
         "Content-Type": "application/json",
     };
 }
@@ -28,7 +28,7 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
     if (script) {
         if (!model) throw new Error(apiText("audioModelRequired"));
         if (!requestConfig.baseUrl.trim()) throw new Error(apiText("baseUrlRequired"));
-        if (!requestConfig.apiKey.trim()) throw new Error(apiText("apiKeyRequired"));
+        if (!requestConfig.apiKey.trim() && !requestConfig.serverManaged) throw new Error(apiText("apiKeyRequired"));
         try {
             const result = await runModelPlugin({
                 capability: "audio",
@@ -88,7 +88,7 @@ export async function storeGeneratedAudio(blob: Blob, format = "mp3"): Promise<U
 function assertAudioConfig(config: AiConfig, model: string) {
     if (!model) throw new Error(apiText("audioModelRequired"));
     if (!config.baseUrl.trim()) throw new Error(apiText("baseUrlRequired"));
-    if (!config.apiKey.trim()) throw new Error(apiText("apiKeyRequired"));
+    if (!config.apiKey.trim() && !config.serverManaged) throw new Error(apiText("apiKeyRequired"));
     if (config.apiFormat === "gemini") throw new Error(apiText("geminiAudioUnsupported"));
 }
 

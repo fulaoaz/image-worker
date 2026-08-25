@@ -9,12 +9,13 @@ COPY CHANGELOG.md /app/CHANGELOG.md
 COPY web ./
 RUN bun run build
 
-# 运行镜像：只启动静态前端，AI 请求由浏览器前台直连用户自己的接口。
-FROM nginx:1.27-alpine
+# 运行镜像：服务端保存管理员渠道密钥，并代理浏览器发起的 AI 请求。
+FROM oven/bun:1.3.13
 
-COPY --from=web-build /app/web/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY web/docker-entrypoint.sh /docker-entrypoint.d/40-runtime-config.sh
-RUN chmod +x /docker-entrypoint.d/40-runtime-config.sh
+WORKDIR /app
+COPY --from=web-build /app/web/dist /app/web
+COPY server /app/server
 
 EXPOSE 3000
+
+CMD ["bun", "run", "/app/server/index.ts"]

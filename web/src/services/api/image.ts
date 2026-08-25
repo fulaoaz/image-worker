@@ -337,12 +337,12 @@ function withSystemPrompt(config: AiConfig, prompt: string) {
 }
 
 function aiApiUrl(config: AiConfig, path: string) {
-    return buildApiUrl(config.baseUrl, path);
+    return config.serverManaged ? `/api/ai-proxy${path}` : buildApiUrl(config.baseUrl, path);
 }
 
-function aiHeaders(config: AiConfig, contentType?: string) {
+function aiHeaders(config: Pick<AiConfig, "apiKey" | "channelId" | "serverManaged">, contentType?: string) {
     return {
-        Authorization: `Bearer ${config.apiKey}`,
+        ...(config.serverManaged ? { "x-ai-channel-id": config.channelId || "" } : { Authorization: `Bearer ${config.apiKey}` }),
         ...(contentType ? { "Content-Type": contentType } : {}),
     };
 }
@@ -361,6 +361,12 @@ function geminiApiUrl(config: Pick<AiConfig, "baseUrl" | "model">, action?: "gen
     const baseUrl = geminiBaseUrl(config);
     if (!action) return `${baseUrl}/models`;
     return `${baseUrl}/models/${encodeURIComponent(geminiModelName(config.model))}:${action}`;
+}
+
+function geminiProxyUrl(config: Pick<AiConfig, "model">, action?: "generateContent" | "streamGenerateContent") {
+    const path = action ? `/api/ai-proxy/gemini/${action}` : "/api/ai-proxy/models";
+    const suffix = action === "streamGenerateContent" ? "&alt=sse" : "";
+    return `${path}?model=${encodeURIComponent(geminiModelName(config.model))}${suffix}`;
 }
 
 function geminiHeaders(config: Pick<AiConfig, "apiKey">) {
@@ -603,9 +609,9 @@ function toGeminiToolOptions(tools: ResponseFunctionTool[], toolChoice: ToolChoi
 }
 
 async function requestGeminiStreamingResponse(config: AiConfig, body: Record<string, unknown>, onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
-    const response = await fetch(`${geminiApiUrl(config, "streamGenerateContent")}?alt=sse`, {
+    const response = await fetch(config.serverManaged ? geminiProxyUrl(config, "streamGenerateContent") : `${geminiApiUrl(config, "streamGenerateContent")}?alt=sse`, {
         method: "POST",
-        headers: geminiHeaders(config),
+        headers: config.serverManaged ? { ...aiHeaders(config, "application/json"), Accept: "text/event-stream" } : geminiHeaders(config),
         body: JSON.stringify(body),
         signal: options?.signal,
     });
@@ -691,12 +697,12 @@ async function requestGeminiImagesOnce(config: AiConfig, prompt: string, referen
         parts.push(toGeminiImagePart(await imageToDataUrl(image)));
     }
     const response = await axios.post<GeminiPayload>(
-        geminiApiUrl(config, "generateContent"),
+        config.serverManaged ? geminiProxyUrl(config, "generateContent") : geminiApiUrl(config, "generateContent"),
         {
             ...toGeminiBody(config, [{ role: "user", content: prompt }], { generationConfig: { responseModalities: ["TEXT", "IMAGE"], ...resolveGeminiImageConfig(config) } }),
             contents: [{ role: "user", parts }],
         },
-        { headers: geminiHeaders(config), signal: options?.signal },
+        { headers: config.serverManaged ? aiHeaders(config, "application/json") : geminiHeaders(config), signal: options?.signal },
     );
     return parseGeminiImagePayload(response.data);
 }
@@ -882,20 +888,19 @@ export async function requestImageQuestion(config: AiConfig, messages: AiTextMes
     }
 }
 
-export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat">) {
+export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat" | "channelId" | "serverManaged" | "model">) {
     try {
         if (config.apiFormat === "gemini") {
-            const response = await axios.get<GeminiPayload>(geminiApiUrl({ ...defaultGeminiConfig, ...config }), { headers: geminiHeaders({ ...defaultGeminiConfig, ...config }) });
+            const geminiConfig = { ...defaultGeminiConfig, ...config };
+            const response = await axios.get<GeminiPayload>(config.serverManaged ? geminiProxyUrl(geminiConfig) : geminiApiUrl(geminiConfig), { headers: config.serverManaged ? aiHeaders(geminiConfig) : geminiHeaders(geminiConfig) });
             validateGeminiPayload(response.data);
             return (response.data.models || [])
                 .map((model) => model.name?.replace(/^models\//, ""))
                 .filter((id): id is string => Boolean(id))
                 .sort((a, b) => a.localeCompare(b));
         }
-        const response = await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildApiUrl(config.baseUrl, "/models"), {
-            headers: {
-                Authorization: `Bearer ${config.apiKey}`,
-            },
+        const response = await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(config.serverManaged ? "/api/ai-proxy/models" : buildApiUrl(config.baseUrl, "/models"), {
+            headers: config.serverManaged ? aiHeaders(config) : { Authorization: `Bearer ${config.apiKey}` },
         });
         return (response.data.data || [])
             .map((model) => model.id)
@@ -907,7 +912,7 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
 }
 
 export async function fetchChannelModels(channel: ModelChannel) {
-    return fetchImageModels({ baseUrl: channel.baseUrl, apiKey: channel.apiKey, apiFormat: channel.apiFormat });
+    return fetchImageModels({ baseUrl: channel.baseUrl, apiKey: channel.apiKey, apiFormat: channel.apiFormat, channelId: channel.id, serverManaged: channel.serverManaged, model: "" });
 }
 
 const defaultGeminiConfig: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat" | "model" | "systemPrompt"> = {
