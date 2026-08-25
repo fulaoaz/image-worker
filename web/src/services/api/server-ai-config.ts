@@ -27,4 +27,3 @@ async function requestAdminConfig(method: "GET" | "POST", token: string, channel
     if (!response.ok) throw new Error(payload.error || "服务器配置请求失败");
     return Array.isArray(payload.channels) ? payload.channels : [];
 }
-

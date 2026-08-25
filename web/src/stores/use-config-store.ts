@@ -489,4 +489,3 @@ export function buildApiUrl(baseUrl: string, path: string) {
     const apiBaseUrl = lowerBaseUrl.endsWith("/v1") ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
     return `${apiBaseUrl}${path}`;
 }
-

@@ -255,7 +255,7 @@ export default {
         },
         node: {
             node: "节点",
-            untitled: "未命名节点", renameHint: "双击修改节点名称", group: "组", nodeCount: "{{count}} 个节点", generating: "生成中", failed: "生成失败", retry: "重试", missingPlugin: "缺少插件", miss…8574 tokens truncated… Skill…", noMatch: "没有匹配的已启用 Skill", none: "还没有可用的 Skill", select: "选择 Skill", connectHint: "连接 Agent 后使用 Skill" },
+            untitled: "未命名节点", renameHint: "双击修改节点名称", group: "组", nodeCount: "{{count}} 个节点", generating: "生成中", failed: "生成失败", retry: "重试", missingPlugin: "缺少插件", miss…8573 tokens truncated… Skill…", noMatch: "没有匹配的已启用 Skill", none: "还没有可用的 Skill", select: "选择 Skill", connectHint: "连接 Agent 后使用 Skill" },
         skillManager: {
             codexBusy: "Codex 正在运行，请完成当前任务后再提炼 Skill", noConversation: "当前对话还没有可提炼的已完成内容", noCanvas: "当前页面没有可提炼的画布", connecting: "当前页面仍在连接 Agent，请稍后再试", syncFailed: "同步当前画布失败，请检查 Agent 连接后重试", noDraft: "未生成 Skill 草稿", draftCreated: "草稿已生成，可在技能页确认后创建", draftFailed: "生成 Skill 草稿失败", contentMissing: "未读取到 Skill 内容", readFailed: "读取 Skill 失败", defaultPromptMention: "默认提示词需要包含 ${{name}}", created: "Skill 已创建", updated: "Skill 已更新", saveFailed: "保存 Skill 失败", deleteTitle: "删除 {{name}}", deleteDescription: "删除后本地文件无法恢复，确定继续吗？", delete: "删除", deleted: "Skill 已删除", deleteFailed: "删除 Skill 失败", statusFailed: "更新 Skill 状态失败",
             fromConversation: "从当前对话生成草稿", availableAfterRun: "Codex 运行结束后可用", conversationDescription: "整理当前对话中的可复用流程", noCompletedContent: "当前对话还没有已完成内容", startConversation: "请先开始一段对话", fromCanvas: "从当前画布生成草稿", canvasDescription: "整理当前页面的节点与生成流程", canvasUnavailable: "当前页面没有可用画布", blankCreate: "空白创建", blankDescription: "从空白表单开始编写", localSkills: "本地 Skill", localDescription: "安装在本机，由 Codex 直接执行", reload: "重新读取", reloadSkill: "重新读取 Skill", createSkill: "创建 Skill", filterBySource: "按来源筛选 Skill", scopes: { all: "全部来源", repo: "项目", user: "个人", system: "系统", admin: "管理员" }, loadErrors: "{{count}} 个 Skill 未能加载", externalReadonly: "外部 Skill 只能使用或启停", noDescription: "暂无说明", enabled: "已启用", disabled: "已停用", selected: "已选择", use: "使用", editNamed: "编辑 {{name}}", deleteNamed: "删除 {{name}}", connectToView: "连接 Agent 后查看 Skill", noMatch: "没有匹配的 Skill", none: "还没有本地 Skill", connectDescription: "连接成功后会读取本机已安装的 Skill", tryAnotherFilter: "换个关键词或来源试试", createOrInstall: "创建一个，或在本机安装后刷新", saveChanges: "保存更改", saveLocation: "保存到本地 Agent 工作区", basicInfo: "基本信息",
@@ -281,4 +281,3 @@ export default {
         enUS: "English",
     },
 };
-
