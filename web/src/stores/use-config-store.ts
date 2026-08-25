@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
@@ -70,6 +70,7 @@ export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
+let serverChannelsRequest: Promise<ModelChannel[]> | null = null;
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
@@ -127,11 +128,15 @@ export const defaultWebdavSyncConfig: WebdavSyncConfig = {
 type ConfigStore = {
     config: AiConfig;
     webdav: WebdavSyncConfig;
+    serverChannels: ModelChannel[];
+    serverChannelsLoading: boolean;
+    serverChannelsLoaded: boolean;
     isConfigOpen: boolean;
     configTab: ConfigTabKey;
     shouldPromptContinue: boolean;
     updateConfig: <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
     updateWebdavConfig: <K extends keyof WebdavSyncConfig>(key: K, value: WebdavSyncConfig[K]) => void;
+    refreshServerChannels: () => Promise<ModelChannel[]>;
     isAiConfigReady: (config: AiConfig, model: string) => boolean;
     openConfigDialog: (shouldPromptContinue?: boolean, tab?: ConfigTabKey) => void;
     setConfigDialogOpen: (isOpen: boolean) => void;
@@ -200,6 +205,9 @@ export const useConfigStore = create<ConfigStore>()(
         (set, get) => ({
             config: defaultConfig,
             webdav: defaultWebdavSyncConfig,
+            serverChannels: [],
+            serverChannelsLoading: false,
+            serverChannelsLoaded: false,
             isConfigOpen: false,
             configTab: "channels",
             shouldPromptContinue: false,
@@ -217,6 +225,23 @@ export const useConfigStore = create<ConfigStore>()(
                         [key]: value,
                     },
                 })),
+            refreshServerChannels: async () => {
+                if (serverChannelsRequest) return serverChannelsRequest;
+                set({ serverChannelsLoading: true });
+                const request = loadServerModelChannels();
+                serverChannelsRequest = request;
+                try {
+                    const channels = await request;
+                    set({ serverChannels: channels, serverChannelsLoaded: true });
+                    return channels;
+                } catch (error) {
+                    set({ serverChannels: [], serverChannelsLoaded: true });
+                    throw error;
+                } finally {
+                    serverChannelsRequest = null;
+                    set({ serverChannelsLoading: false });
+                }
+            },
             isAiConfigReady: (config, model) => isAiConfigReady(config, model),
             openConfigDialog: (shouldPromptContinue = false, configTab = "channels") => set({ isConfigOpen: true, shouldPromptContinue, configTab }),
             setConfigDialogOpen: (isConfigOpen) => set({ isConfigOpen }),
@@ -268,15 +293,13 @@ export const useConfigStore = create<ConfigStore>()(
 
 export function useEffectiveConfig() {
     const config = useConfigStore((state) => state.config);
-    const [serverChannels, setServerChannels] = useState<ModelChannel[]>([]);
+    const serverChannels = useConfigStore((state) => state.serverChannels);
+    const serverChannelsLoaded = useConfigStore((state) => state.serverChannelsLoaded);
+    const refreshServerChannels = useConfigStore((state) => state.refreshServerChannels);
 
     useEffect(() => {
-        let active = true;
-        void fetchServerModelChannels().then((channels) => active && setServerChannels(channels));
-        return () => {
-            active = false;
-        };
-    }, []);
+        if (!serverChannelsLoaded) void refreshServerChannels().catch(() => undefined);
+    }, [refreshServerChannels, serverChannelsLoaded]);
 
     return useMemo(() => {
         const localChannels = config.channels.filter((channel) => !channel.serverManaged);
@@ -287,11 +310,15 @@ export function useEffectiveConfig() {
 
 export async function fetchServerModelChannels() {
     try {
-        const channels = await fetchPublicServerModelChannels();
-        return channels.map((channel) => createModelChannel({ ...channel, apiKey: "", serverManaged: true }));
+        return await loadServerModelChannels();
     } catch {
         return [];
     }
+}
+
+async function loadServerModelChannels() {
+    const channels = await fetchPublicServerModelChannels();
+    return channels.map((channel) => createModelChannel({ ...channel, apiKey: "", serverManaged: true }));
 }
 
 export function withModelChannels(config: AiConfig, sourceChannels: ModelChannel[]) {
@@ -462,3 +489,4 @@ export function buildApiUrl(baseUrl: string, path: string) {
     const apiBaseUrl = lowerBaseUrl.endsWith("/v1") ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
     return `${apiBaseUrl}${path}`;
 }
+

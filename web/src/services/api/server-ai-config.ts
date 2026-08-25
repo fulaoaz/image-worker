@@ -4,7 +4,7 @@ type ServerAiConfigResponse = { channels?: ModelChannel[]; error?: string };
 
 export async function fetchPublicServerModelChannels() {
     const response = await fetch("/api/ai-config", { cache: "no-store" });
-    if (!response.ok) return [];
+    if (!response.ok) throw new Error(`服务器渠道请求失败（${response.status}）`);
     const payload = (await response.json()) as ServerAiConfigResponse;
     return Array.isArray(payload.channels) ? payload.channels : [];
 }
@@ -27,3 +27,4 @@ async function requestAdminConfig(method: "GET" | "POST", token: string, channel
     if (!response.ok) throw new Error(payload.error || "服务器配置请求失败");
     return Array.isArray(payload.channels) ? payload.channels : [];
 }
+

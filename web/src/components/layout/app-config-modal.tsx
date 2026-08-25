@@ -1,6 +1,6 @@
-import { App, Button, Form, Input, Modal, Progress, Select, Tabs } from "antd";
+import { App, Button, Form, Input, Modal, Progress, Select, Tabs, Tag } from "antd";
 import type { TFunction } from "i18next";
-import { Cloud, Download, Pencil, Plus, RefreshCw, Trash2, Upload, Wifi } from "lucide-react";
+import { Cloud, Download, Pencil, Plus, RefreshCw, Server, Trash2, Upload, Wifi } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -13,7 +13,7 @@ import { exportAppConfig, importAppConfig } from "@/services/config-file";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
-import { createModelChannel, modelOptionsFromChannels, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore, type AiConfig, type ApiCallFormat, type ConfigTabKey, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
+import { createModelChannel, modelOptionsFromChannels, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore, useEffectiveConfig, type AiConfig, type ApiCallFormat, type ConfigTabKey, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 
 type ModelGroup = {
     capability: ModelCapability;
@@ -58,6 +58,10 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     const [webdavDomainProgress, setWebdavDomainProgress] = useState(createWebdavDomainProgress);
     const config = useConfigStore((state) => state.config);
     const webdav = useConfigStore((state) => state.webdav);
+    const serverChannels = useConfigStore((state) => state.serverChannels);
+    const serverChannelsLoading = useConfigStore((state) => state.serverChannelsLoading);
+    const refreshServerChannels = useConfigStore((state) => state.refreshServerChannels);
+    const effectiveConfig = useEffectiveConfig();
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const updateWebdavConfig = useConfigStore((state) => state.updateWebdavConfig);
     const shouldPromptContinue = useConfigStore((state) => state.shouldPromptContinue);
@@ -72,8 +76,17 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
         (Object.keys(nextConfig) as Array<keyof AiConfig>).forEach((key) => updateConfig(key, nextConfig[key]));
     };
 
+    const loadServerChannels = async () => {
+        try {
+            const channels = await refreshServerChannels();
+            message.success(channels.length ? t("config.channels.serverLoaded", { count: channels.length }) : t("config.channels.serverEmpty"));
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : t("config.channels.serverLoadFailed"));
+        }
+    };
+
     const finishConfig = () => {
-        const ready = config.channels.some((channel) => channel.baseUrl.trim() && channel.apiKey.trim() && channel.models.length);
+        const ready = effectiveConfig.channels.some((channel) => channel.baseUrl.trim() && (channel.apiKey.trim() || channel.serverManaged) && channel.models.length);
         setConfigDialogOpen(false);
         if (!ready) return;
         message.success(t(shouldPromptContinue ? "config.savedContinue" : "config.saved"));
@@ -208,6 +221,42 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                                         </div>
                                     ))}
                                 </div>
+                                <section className="mt-5 rounded-lg border border-sky-200/80 bg-sky-50/40 p-4 dark:border-sky-900/70 dark:bg-sky-950/20">
+                                    <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                                        <div>
+                                            <div className="flex items-center gap-2 text-sm font-semibold">
+                                                <Server className="size-4" />
+                                                {t("config.channels.serverTitle")}
+                                            </div>
+                                            <div className="mt-1 text-xs leading-5 text-stone-500">{t("config.channels.serverDescription")}</div>
+                                        </div>
+                                        <Button icon={<RefreshCw className="size-3.5" />} loading={serverChannelsLoading} onClick={() => void loadServerChannels()}>
+                                            {t("config.channels.serverRefresh")}
+                                        </Button>
+                                    </div>
+                                    {serverChannels.length ? (
+                                        <div className="space-y-2">
+                                            {serverChannels.map((channel) => (
+                                                <div key={channel.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-sky-200/80 bg-white/70 px-4 py-3 dark:border-sky-900/70 dark:bg-stone-950/30">
+                                                    <div className="min-w-0">
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <span className="truncate text-sm font-semibold">{channel.name || t("config.channels.unnamed")}</span>
+                                                            <Tag color="blue">{t("config.channels.serverManaged")}</Tag>
+                                                        </div>
+                                                        <div className="mt-1 truncate text-xs text-stone-500">
+                                                            {apiFormatLabel(channel.apiFormat)} · {t("config.channels.modelCount", { count: channel.models.length })} · {channel.baseUrl || t("config.channels.missingUrl")}
+                                                        </div>
+                                                    </div>
+                                                    <span className="shrink-0 text-xs text-sky-700 dark:text-sky-300">{t("config.channels.serverReady")}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="rounded-lg border border-dashed border-sky-200 px-4 py-6 text-center text-sm text-stone-500 dark:border-sky-900/70">
+                                            {serverChannelsLoading ? t("config.channels.serverLoading") : t("config.channels.serverEmpty")}
+                                        </div>
+                                    )}
+                                </section>
                             </div>
                         ),
                     },
@@ -220,7 +269,7 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                                 <div className="mb-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                                     {modelGroups.map((group) => (
                                         <Form.Item key={group.modelKey} label={t(group.labelKey)} className="mb-0">
-                                            <ModelPicker config={config} value={config[group.modelKey]} onChange={(model) => updateConfig(group.modelKey, model)} capability={group.capability} fullWidth />
+                                            <ModelPicker config={effectiveConfig} value={effectiveConfig[group.modelKey]} onChange={(model) => updateConfig(group.modelKey, model)} capability={group.capability} fullWidth />
                                         </Form.Item>
                                     ))}
                                 </div>
@@ -467,3 +516,4 @@ function formatBytes(bytes: number) {
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
     return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
+
